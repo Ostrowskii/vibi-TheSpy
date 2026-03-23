@@ -2646,7 +2646,6 @@ function renderPlayersPanel(state, viewerId) {
     <section class="sidebar-panel">
       <div>
         <h2 class="panel-title">Conectados</h2>
-        <p class="panel-copy">Lista de pessoas na mesma sala, incluindo espectadores.</p>
       </div>
       <div class="players-list">
         ${rows || '<p class="empty-state">Ainda nao ha jogadores conectados.</p>'}
@@ -2667,13 +2666,9 @@ function renderChatPanel(state) {
     <section class="sidebar-panel chat-panel">
       <div>
         <h2 class="panel-title">Chat</h2>
-        <div class="chat-meta">
-          <span>Mensagens recentes da sala</span>
-          <span>${state.chat.length} itens</span>
-        </div>
       </div>
       <div class="chat-list">
-        ${messages || '<p class="empty-state">O chat ainda esta vazio.</p>'}
+        ${messages}
       </div>
       <form class="chat-form" data-action="send-chat">
         <input
@@ -2692,7 +2687,6 @@ function renderRoomInfoPanel(controller) {
     <section class="sidebar-panel info-panel">
       <div>
         <h2 class="panel-title">Sessao</h2>
-        <p class="panel-copy">Dados da conexao e identificacao da sala atual.</p>
       </div>
       <div class="info-list">
         <div class="info-item">
@@ -2718,12 +2712,14 @@ function renderGamePanel(state, viewerId, mode) {
   const p1Role = getRoleForSlot(match.roundIndex, "p1");
   const p2Role = getRoleForSlot(match.roundIndex, "p2");
   const showWaitingState = match.status === "waiting" || match.status === "ended";
-  return `
-    <section class="game-panel">
+  const gameTop = showWaitingState ? `
+      <div class="status-block">
+        <p class="status-text">${escapeHtml(statusHeadline(match, viewerSeat))}</p>
+      </div>
+    ` : `
       <div class="game-top">
         <div class="status-block">
           <span class="eyebrow">${roundLabel}</span>
-          <h2>Lobby e Partida</h2>
           <p class="status-text">${escapeHtml(statusHeadline(match, viewerSeat))}</p>
         </div>
         <div class="button-row">
@@ -2731,6 +2727,10 @@ function renderGamePanel(state, viewerId, mode) {
           <span class="score-pill">P2 ${match.totals.p2} pts</span>
         </div>
       </div>
+    `;
+  return `
+    <section class="game-panel">
+      ${gameTop}
 
       <div class="roles-grid">
         ${renderRoleCard("P1", match.p1Id, state, p1Role)}
@@ -2774,13 +2774,6 @@ function renderWaitingPanel(state, viewerId, mode) {
   const commanderText = commanderOccupantId ? `${commanderOccupantId === viewerId ? "Voce" : commanderName} e comandante espiao.` : "Clique para ocupar este cargo inicial e responder ao informante.";
   return `
     <div class="waiting-panel">
-      <div class="status-banner">
-        <strong>${escapeHtml(waitingHeadline(match, viewerSeat, mode))}</strong>
-        <p class="status-text">
-          Escolha o cargo inicial. O informante do governo sempre abre cada turno.
-        </p>
-      </div>
-
       <div class="waiting-seat-grid">
         <button
           class="seat-choice ${informantOccupantId ? "occupied" : "available"} ${informantOccupantId === viewerId ? "selected" : ""}"
@@ -3105,7 +3098,7 @@ function boardPerspective(viewerSeat) {
 }
 function statusHeadline(match, viewerSeat) {
   if (match.status === "waiting") {
-    return "Sala aberta. Cada jogador escolhe o cargo inicial antes da partida comecar.";
+    return "Cada jogador escolhe o cargo inicial antes da partida comecar.";
   }
   if (match.status === "ended") {
     return "As quatro rodadas terminaram. Feche o popup e monte outra partida na mesma sala.";
@@ -3120,18 +3113,6 @@ function statusHeadline(match, viewerSeat) {
     return `${seatRoleName(match, match.turn)} escolhe agora.`;
   }
   return "A rodada esta aguardando a resolucao atual.";
-}
-function waitingHeadline(match, viewerSeat, mode) {
-  if (match.status === "ended") {
-    return "Partida encerrada. Escolha de novo quem comeca como informante e quem comeca como comandante.";
-  }
-  if (mode === "solo") {
-    return "No modo local, o bot assume automaticamente o cargo que sobrar.";
-  }
-  if (viewerSeat === "spectator") {
-    return "Escolha um dos dois cargos para entrar na partida. Se ambos estiverem ocupados, voce assiste.";
-  }
-  return "Voce ja escolheu um cargo inicial. Quando os dois assentos estiverem ocupados, a partida comeca.";
 }
 function boardNarration(match, viewerSeat) {
   if (match.status === "revealed" && match.reveal) {

@@ -480,7 +480,6 @@ function renderPlayersPanel(state: RoomState, viewerId: string): string {
     <section class="sidebar-panel">
       <div>
         <h2 class="panel-title">Conectados</h2>
-        <p class="panel-copy">Lista de pessoas na mesma sala, incluindo espectadores.</p>
       </div>
       <div class="players-list">
         ${rows || '<p class="empty-state">Ainda nao ha jogadores conectados.</p>'}
@@ -505,13 +504,9 @@ function renderChatPanel(state: RoomState): string {
     <section class="sidebar-panel chat-panel">
       <div>
         <h2 class="panel-title">Chat</h2>
-        <div class="chat-meta">
-          <span>Mensagens recentes da sala</span>
-          <span>${state.chat.length} itens</span>
-        </div>
       </div>
       <div class="chat-list">
-        ${messages || '<p class="empty-state">O chat ainda esta vazio.</p>'}
+        ${messages}
       </div>
       <form class="chat-form" data-action="send-chat">
         <input
@@ -531,7 +526,6 @@ function renderRoomInfoPanel(controller: Controller): string {
     <section class="sidebar-panel info-panel">
       <div>
         <h2 class="panel-title">Sessao</h2>
-        <p class="panel-copy">Dados da conexao e identificacao da sala atual.</p>
       </div>
       <div class="info-list">
         <div class="info-item">
@@ -558,13 +552,16 @@ function renderGamePanel(state: RoomState, viewerId: string, mode: RoomMode): st
   const p1Role = getRoleForSlot(match.roundIndex, "p1");
   const p2Role = getRoleForSlot(match.roundIndex, "p2");
   const showWaitingState = match.status === "waiting" || match.status === "ended";
-
-  return `
-    <section class="game-panel">
+  const gameTop = showWaitingState
+    ? `
+      <div class="status-block">
+        <p class="status-text">${escapeHtml(statusHeadline(match, viewerSeat))}</p>
+      </div>
+    `
+    : `
       <div class="game-top">
         <div class="status-block">
           <span class="eyebrow">${roundLabel}</span>
-          <h2>Lobby e Partida</h2>
           <p class="status-text">${escapeHtml(statusHeadline(match, viewerSeat))}</p>
         </div>
         <div class="button-row">
@@ -572,6 +569,11 @@ function renderGamePanel(state: RoomState, viewerId: string, mode: RoomMode): st
           <span class="score-pill">P2 ${match.totals.p2} pts</span>
         </div>
       </div>
+    `;
+
+  return `
+    <section class="game-panel">
+      ${gameTop}
 
       <div class="roles-grid">
         ${renderRoleCard("P1", match.p1Id, state, p1Role)}
@@ -622,13 +624,6 @@ function renderWaitingPanel(state: RoomState, viewerId: string, mode: RoomMode):
 
   return `
     <div class="waiting-panel">
-      <div class="status-banner">
-        <strong>${escapeHtml(waitingHeadline(match, viewerSeat, mode))}</strong>
-        <p class="status-text">
-          Escolha o cargo inicial. O informante do governo sempre abre cada turno.
-        </p>
-      </div>
-
       <div class="waiting-seat-grid">
         <button
           class="seat-choice ${informantOccupantId ? "occupied" : "available"} ${informantOccupantId === viewerId ? "selected" : ""}"
@@ -1005,7 +1000,7 @@ function labelPerspective(state: RoomState, slot: PlayerSlot, viewerSeat: Seat, 
 
 function statusHeadline(match: MatchState, viewerSeat: Seat): string {
   if (match.status === "waiting") {
-    return "Sala aberta. Cada jogador escolhe o cargo inicial antes da partida comecar.";
+    return "Cada jogador escolhe o cargo inicial antes da partida comecar.";
   }
 
   if (match.status === "ended") {
