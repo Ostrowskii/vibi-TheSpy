@@ -2718,11 +2718,7 @@ function renderGamePanel(state, viewerId, mode) {
   const p1Role = getRoleForSlot(match.roundIndex, "p1");
   const p2Role = getRoleForSlot(match.roundIndex, "p2");
   const showWaitingState = match.status === "waiting" || match.status === "ended";
-  const gameTop = showWaitingState ? `
-      <div class="status-block">
-        <p class="status-text">${escapeHtml(statusHeadline(match, viewerSeat))}</p>
-      </div>
-    ` : `
+  const gameTop = showWaitingState ? "" : `
       <div class="game-top">
         <div class="status-block">
           <span class="eyebrow">${roundLabel}</span>
@@ -2748,9 +2744,7 @@ function renderGamePanel(state, viewerId, mode) {
       ${showWaitingState ? renderWaitingPanel(state, viewerId, mode) : renderBoard(state, viewerId)}
 
       <div class="board-footer">
-        <span class="tiny">
-          ${mode === "solo" ? "Modo local: o bot ocupa o cargo restante automaticamente." : "Modo online: uma sala comporta uma partida ativa por vez via vibinet."}
-        </span>
+        ${mode === "solo" ? '<span class="tiny">Modo local: o bot ocupa o cargo restante automaticamente.</span>' : ""}
         ${renderActionFooter(state, viewerId)}
       </div>
     </section>
@@ -2778,6 +2772,7 @@ function renderWaitingPanel(state, viewerId, mode) {
   const canChooseCommander = !commanderOccupantId || commanderOccupantId === viewerId;
   const informantName = informantOccupantId ? state.participants[informantOccupantId]?.name ?? "Alguem" : "";
   const commanderName = commanderOccupantId ? state.participants[commanderOccupantId]?.name ?? "Alguem" : "";
+  const waitingCopy = statusHeadline(match, viewerSeat);
   const informantText = !informantOccupantId ? "Entrar como informante do governo. Esse cargo abre cada turno." : informantOccupantId === viewerId ? "Voce e informante do governo. Clique novamente para sair desse cargo." : `${informantName} e informante do governo.`;
   const commanderText = !commanderOccupantId ? "Entrar como comandante espiao. Esse cargo responde ao informante." : commanderOccupantId === viewerId ? "Voce e comandante espiao. Clique novamente para sair desse cargo." : `${commanderName} e comandante espiao.`;
   return `
@@ -2789,7 +2784,7 @@ function renderWaitingPanel(state, viewerId, mode) {
           data-seat="${informantSeat}"
           ${canChooseInformant ? "" : "disabled"}
         >
-          <span class="seat-choice-kicker">Cargo inicial</span>
+          <span class="seat-choice-kicker">${escapeHtml(waitingCopy)}</span>
           <strong class="seat-choice-title">Informante do Governo</strong>
           <span class="seat-choice-copy">${escapeHtml(informantText)}</span>
         </button>
@@ -2799,7 +2794,7 @@ function renderWaitingPanel(state, viewerId, mode) {
           data-seat="${commanderSeat}"
           ${canChooseCommander ? "" : "disabled"}
         >
-          <span class="seat-choice-kicker">Cargo inicial</span>
+          <span class="seat-choice-kicker">${escapeHtml(waitingCopy)}</span>
           <strong class="seat-choice-title">Comandante Espiao</strong>
           <span class="seat-choice-copy">${escapeHtml(commanderText)}</span>
         </button>

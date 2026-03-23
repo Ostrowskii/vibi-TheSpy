@@ -90,7 +90,7 @@ button {
 
 .home-hero {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .home-hero h1,
@@ -593,9 +593,9 @@ button {
 
 .seat-choice {
   width: 100%;
-  min-height: 136px;
-  height: clamp(136px, 18vh, 164px);
-  max-height: 164px;
+  min-height: 152px;
+  height: clamp(152px, 20vh, 188px);
+  max-height: 188px;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -636,22 +636,24 @@ button {
 }
 
 .seat-choice-kicker {
-  font-size: 0.74rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: 0.88rem;
+  letter-spacing: 0.01em;
+  text-transform: none;
   color: var(--muted);
+  line-height: 1.5;
 }
 
 .seat-choice-title {
-  font-size: 1.04rem;
-  letter-spacing: 0.04em;
+  font-size: 1.32rem;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--accent-strong);
 }
 
 .seat-choice-copy {
-  color: var(--muted);
-  line-height: 1.55;
+  font-size: 1rem;
+  color: var(--text);
+  line-height: 1.6;
 }
 
 .modal {
