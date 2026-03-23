@@ -497,9 +497,9 @@ function renderSidebar(state: RoomState, viewerId: string, controller: Controlle
   return `
     <aside class="sidebar">
       ${renderLeavePanel()}
-      ${renderRoomInfoPanel(controller)}
-      ${renderPlayersPanel(state, viewerId)}
       ${renderChatPanel(state)}
+      ${renderPlayersPanel(state, viewerId)}
+      ${renderRoomInfoPanel(controller)}
     </aside>
   `;
 }
