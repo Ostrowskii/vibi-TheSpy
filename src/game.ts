@@ -202,7 +202,6 @@ function ensureParticipant(
   const cleanName = participant.name.trim().slice(0, 24) || "Operador";
   const existing = state.participants[participant.id];
   if (existing) {
-    existing.name = cleanName;
     existing.isBot = participant.isBot;
     return;
   }
@@ -237,10 +236,11 @@ function userMessage(state: RoomState, post: Extract<RoomPost, { $: "chat" }>): 
   }
 
   state.chatCounter += 1;
+  const storedName = state.participants[post.id]?.name;
   const nextMessage: RoomState["chat"][number] = {
     id: state.chatCounter,
     authorId: post.id,
-    authorName: post.name.trim().slice(0, 24) || "Operador",
+    authorName: storedName ?? (post.name.trim().slice(0, 24) || "Operador"),
     text: clean,
     kind: "user",
   };

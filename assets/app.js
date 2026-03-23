@@ -1943,7 +1943,6 @@ function ensureParticipant(state, participant) {
   const cleanName = participant.name.trim().slice(0, 24) || "Operador";
   const existing = state.participants[participant.id];
   if (existing) {
-    existing.name = cleanName;
     existing.isBot = participant.isBot;
     return;
   }
@@ -1974,10 +1973,11 @@ function userMessage(state, post) {
     return;
   }
   state.chatCounter += 1;
+  const storedName = state.participants[post.id]?.name;
   const nextMessage = {
     id: state.chatCounter,
     authorId: post.id,
-    authorName: post.name.trim().slice(0, 24) || "Operador",
+    authorName: storedName ?? (post.name.trim().slice(0, 24) || "Operador"),
     text: clean,
     kind: "user"
   };
@@ -2288,6 +2288,7 @@ var STORAGE_NAME_KEY = "the-spy-name";
 var STORAGE_ID_KEY = "the-spy-viewer-id";
 var ROOM_SCHEMA_VERSION = "v4";
 var ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
+var PAGE_INSTANCE_ID = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `page-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 var shouldFocusChatInputAfterRender = false;
 var lastChatViewportKey = "";
 function buildNetworkRoomId(roomId) {
@@ -3270,14 +3271,14 @@ function saveName(name) {
   window.localStorage.setItem(STORAGE_NAME_KEY, name);
 }
 function loadViewerId() {
-  const existing = window.sessionStorage.getItem(STORAGE_ID_KEY);
-  if (existing) {
-    return existing;
+  const existingSeed = window.sessionStorage.getItem(STORAGE_ID_KEY);
+  if (existingSeed) {
+    return `${existingSeed}::${PAGE_INSTANCE_ID}`;
   }
   window.localStorage.removeItem(STORAGE_ID_KEY);
-  const next = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `viewer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  window.sessionStorage.setItem(STORAGE_ID_KEY, next);
-  return next;
+  const nextSeed = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `viewer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  window.sessionStorage.setItem(STORAGE_ID_KEY, nextSeed);
+  return `${nextSeed}::${PAGE_INSTANCE_ID}`;
 }
 function escapeHtml(value) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");

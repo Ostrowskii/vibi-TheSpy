@@ -27,6 +27,10 @@ const STORAGE_NAME_KEY = "the-spy-name";
 const STORAGE_ID_KEY = "the-spy-viewer-id";
 const ROOM_SCHEMA_VERSION = "v4";
 const ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
+const PAGE_INSTANCE_ID =
+  typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `page-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 let shouldFocusChatInputAfterRender = false;
 let lastChatViewportKey = "";
@@ -1237,21 +1241,21 @@ function saveName(name: string): void {
 }
 
 function loadViewerId(): string {
-  const existing = window.sessionStorage.getItem(STORAGE_ID_KEY);
-  if (existing) {
-    return existing;
+  const existingSeed = window.sessionStorage.getItem(STORAGE_ID_KEY);
+  if (existingSeed) {
+    return `${existingSeed}::${PAGE_INSTANCE_ID}`;
   }
 
   // Older builds stored the viewer id in localStorage, which made all tabs
   // share the same identity. Clearing it here prevents cross-tab seat collisions.
   window.localStorage.removeItem(STORAGE_ID_KEY);
 
-  const next =
+  const nextSeed =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `viewer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  window.sessionStorage.setItem(STORAGE_ID_KEY, next);
-  return next;
+  window.sessionStorage.setItem(STORAGE_ID_KEY, nextSeed);
+  return `${nextSeed}::${PAGE_INSTANCE_ID}`;
 }
 
 function escapeHtml(value: string): string {
