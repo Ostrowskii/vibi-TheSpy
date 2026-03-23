@@ -2288,6 +2288,8 @@ var STORAGE_NAME_KEY = "the-spy-name";
 var STORAGE_ID_KEY = "the-spy-viewer-id";
 var ROOM_SCHEMA_VERSION = "v4";
 var ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
+var shouldFocusChatInputAfterRender = false;
+var lastChatViewportKey = "";
 function buildNetworkRoomId(roomId) {
   return ROOM_NAMESPACE + "__" + roomId;
 }
@@ -2718,12 +2720,17 @@ function renderChatPanel(state) {
       <div class="chat-list">
         ${messages}
       </div>
-      <form class="chat-form" data-action="send-chat">
+      <form class="chat-form" data-action="send-chat" autocomplete="off">
         <input
           class="chat-input"
           id="chat-input"
           maxlength="220"
           placeholder="Escreva uma mensagem para a sala"
+          autocomplete="off"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          enterkeyhint="send"
         />
         <button class="primary-button" type="submit">Enviar</button>
       </form>
@@ -3090,6 +3097,7 @@ function bindEvents(state, viewerId, rerender) {
     if (!text) {
       return;
     }
+    shouldFocusChatInputAfterRender = true;
     state.controller.post({
       $: "chat",
       id: state.controller.viewerId,
@@ -3098,6 +3106,33 @@ function bindEvents(state, viewerId, rerender) {
     });
     chatInput.value = "";
   });
+  syncChatUi(state);
+}
+function syncChatUi(state) {
+  const chatInput = document.getElementById("chat-input");
+  if (state.screen !== "room" || !state.controller) {
+    lastChatViewportKey = "";
+    shouldFocusChatInputAfterRender = false;
+    return;
+  }
+  const roomState = state.controller.getState();
+  const latestMessage = roomState.chat[roomState.chat.length - 1] ?? null;
+  const nextViewportKey = latestMessage ? `${roomState.chat.length}:${latestMessage.id}` : "empty";
+  const chatList = document.querySelector(".chat-list");
+  if (chatList && nextViewportKey !== lastChatViewportKey) {
+    lastChatViewportKey = nextViewportKey;
+    window.requestAnimationFrame(() => {
+      chatList.scrollTop = chatList.scrollHeight;
+    });
+  }
+  if (shouldFocusChatInputAfterRender && chatInput) {
+    shouldFocusChatInputAfterRender = false;
+    window.requestAnimationFrame(() => {
+      chatInput.focus();
+      const caret = chatInput.value.length;
+      chatInput.setSelectionRange(caret, caret);
+    });
+  }
 }
 function nextBotCard(match, seat) {
   const available = match.hands[seat].filter((card) => !card.used);

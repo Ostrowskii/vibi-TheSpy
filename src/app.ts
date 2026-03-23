@@ -28,6 +28,9 @@ const STORAGE_ID_KEY = "the-spy-viewer-id";
 const ROOM_SCHEMA_VERSION = "v4";
 const ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
 
+let shouldFocusChatInputAfterRender = false;
+let lastChatViewportKey = "";
+
 function buildNetworkRoomId(roomId: string): string {
   return ROOM_NAMESPACE + "__" + roomId;
 }
@@ -560,12 +563,17 @@ function renderChatPanel(state: RoomState): string {
       <div class="chat-list">
         ${messages}
       </div>
-      <form class="chat-form" data-action="send-chat">
+      <form class="chat-form" data-action="send-chat" autocomplete="off">
         <input
           class="chat-input"
           id="chat-input"
           maxlength="220"
           placeholder="Escreva uma mensagem para a sala"
+          autocomplete="off"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          enterkeyhint="send"
         />
         <button class="primary-button" type="submit">Enviar</button>
       </form>
@@ -992,6 +1000,7 @@ function bindEvents(state: AppState, viewerId: string, rerender: () => void): vo
     if (!text) {
       return;
     }
+    shouldFocusChatInputAfterRender = true;
     state.controller.post({
       $: "chat",
       id: state.controller.viewerId,
@@ -1000,6 +1009,38 @@ function bindEvents(state: AppState, viewerId: string, rerender: () => void): vo
     });
     chatInput.value = "";
   });
+
+  syncChatUi(state);
+}
+
+function syncChatUi(state: AppState): void {
+  const chatInput = document.getElementById("chat-input") as HTMLInputElement | null;
+  if (state.screen !== "room" || !state.controller) {
+    lastChatViewportKey = "";
+    shouldFocusChatInputAfterRender = false;
+    return;
+  }
+
+  const roomState = state.controller.getState();
+  const latestMessage = roomState.chat[roomState.chat.length - 1] ?? null;
+  const nextViewportKey = latestMessage ? `${roomState.chat.length}:${latestMessage.id}` : "empty";
+  const chatList = document.querySelector(".chat-list") as HTMLDivElement | null;
+
+  if (chatList && nextViewportKey !== lastChatViewportKey) {
+    lastChatViewportKey = nextViewportKey;
+    window.requestAnimationFrame(() => {
+      chatList.scrollTop = chatList.scrollHeight;
+    });
+  }
+
+  if (shouldFocusChatInputAfterRender && chatInput) {
+    shouldFocusChatInputAfterRender = false;
+    window.requestAnimationFrame(() => {
+      chatInput.focus();
+      const caret = chatInput.value.length;
+      chatInput.setSelectionRange(caret, caret);
+    });
+  }
 }
 
 function nextBotCard(match: MatchState, seat: PlayerSlot): CardState | null {
