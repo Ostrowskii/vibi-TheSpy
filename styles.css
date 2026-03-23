@@ -583,16 +583,22 @@ button {
 
 .info-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
-.info-item {
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(255, 248, 238, 0.72);
-  border: 1px solid rgba(160, 131, 95, 0.34);
+.info-line {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.info-line strong {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .waiting-seat-grid {

@@ -531,18 +531,9 @@ function renderRoomInfoPanel(controller: Controller): string {
         <h2 class="panel-title">Sessao</h2>
       </div>
       <div class="info-list">
-        <div class="info-item">
-          <span class="tiny">Sala</span>
-          <strong>${escapeHtml(controller.roomId)}</strong>
-        </div>
-        <div class="info-item">
-          <span class="tiny">Usuario</span>
-          <strong>${escapeHtml(controller.viewerName)}</strong>
-        </div>
-        <div class="info-item">
-          <span class="tiny">Modo</span>
-          <strong>${controller.mode === "solo" ? "Vs Bot" : "Online"}</strong>
-        </div>
+        <p class="info-line"><span class="tiny">Sala:</span> <strong>${escapeHtml(controller.roomId)}</strong></p>
+        <p class="info-line"><span class="tiny">Usuario:</span> <strong>${escapeHtml(controller.viewerName)}</strong></p>
+        <p class="info-line"><span class="tiny">Modo:</span> <strong>${controller.mode === "solo" ? "Vs Bot" : "Online"}</strong></p>
       </div>
     </section>
   `;
