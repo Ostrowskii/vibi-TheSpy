@@ -512,14 +512,10 @@ function renderPlayersPanel(state: RoomState, viewerId: string): string {
         seat === "spectator"
           ? "spec"
           : seatRoleName(state.match, seat, state.match.status === "waiting" || state.match.status === "ended");
-      const youLabel = participant.id === viewerId ? " · voce" : "";
+      const youLabel = participant.id === viewerId ? " · (voce)" : "";
       return `
         <div class="player-row">
-          <strong>${escapeHtml(participant.name)}${youLabel}</strong>
-          <div class="button-row">
-            <span class="seat-pill ${seat === "spectator" ? "spectator" : ""}">${escapeHtml(seatLabel)}</span>
-            ${participant.isBot ? '<span class="tag bot">bot</span>' : '<span class="tag">humano</span>'}
-          </div>
+          <p class="player-line"><strong>${escapeHtml(participant.name)}</strong>${youLabel} ${escapeHtml(seatLabel)}</p>
         </div>
       `;
     })

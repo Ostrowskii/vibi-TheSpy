@@ -543,17 +543,24 @@ button {
   border-radius: 14px;
   background: rgba(255, 248, 238, 0.72);
   border: 1px solid rgba(160, 131, 95, 0.34);
-  display: grid;
-  gap: 6px;
 }
 
-.player-row strong,
+.player-row {
+  overflow: hidden;
+}
+
+.player-line {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.96rem;
+  color: var(--text);
+}
+
+.player-line strong,
 .chat-message strong {
   font-size: 0.96rem;
-}
-
-.seat-pill.spectator {
-  color: var(--muted);
 }
 
 .chat-form {
