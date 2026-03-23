@@ -25,6 +25,12 @@ import type {
 
 const STORAGE_NAME_KEY = "the-spy-name";
 const STORAGE_ID_KEY = "the-spy-viewer-id";
+const ROOM_SCHEMA_VERSION = "v2";
+const ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
+
+function buildNetworkRoomId(roomId: string): string {
+  return ROOM_NAMESPACE + "__" + roomId;
+}
 
 interface Controller {
   readonly viewerId: string;
@@ -157,13 +163,17 @@ class MultiplayerController implements Controller {
   private readonly listeners = new Set<() => void>();
   private readonly game: VibiNet<RoomState, RoomPost>;
   private readonly unloadHandler: () => void;
+  private readonly refreshTimer: number;
+  private isSynced = false;
+  private pendingPosts: RoomPost[] = [];
 
   constructor(viewerId: string, viewerName: string, roomId: string) {
     this.viewerId = viewerId;
     this.viewerName = viewerName;
     this.roomId = roomId;
+    const networkRoomId = buildNetworkRoomId(roomId);
     this.game = new VibiNet.game<RoomState, RoomPost>({
-      room: roomId,
+      room: networkRoomId,
       initial: createInitialRoomState(roomId),
       on_tick: (state) => state,
       on_post: (post, currentState) => applyRoomPost(currentState, post),
@@ -173,17 +183,28 @@ class MultiplayerController implements Controller {
     });
 
     this.unloadHandler = () => {
-      this.game.post({
+      if (!this.isSynced) {
+        return;
+      }
+      this.safePostToGame({
         $: "leave",
         id: viewerId,
       });
     };
 
+    this.refreshTimer = window.setInterval(() => {
+      if (this.isSynced && this.listeners.size > 0) {
+        this.emit();
+      }
+    }, 120);
+
     window.addEventListener("beforeunload", this.unloadHandler);
     this.game.on_sync(() => {
-      this.listeners.forEach((listener) => listener());
+      this.isSynced = true;
+      this.flushPendingPosts();
+      this.emit();
     });
-    this.game.post({
+    this.post({
       $: "join",
       id: viewerId,
       name: viewerName,
@@ -203,19 +224,52 @@ class MultiplayerController implements Controller {
   }
 
   post(post: RoomPost): void {
-    this.game.post(post);
+    if (!this.isSynced) {
+      this.pendingPosts.push(post);
+      return;
+    }
+
+    this.safePostToGame(post);
+    this.emit();
   }
 
   destroy(): void {
-    this.game.post({
-      $: "leave",
-      id: this.viewerId,
-    });
+    if (this.isSynced) {
+      this.safePostToGame({
+        $: "leave",
+        id: this.viewerId,
+      });
+    }
+    this.pendingPosts = [];
+    window.clearInterval(this.refreshTimer);
     window.removeEventListener("beforeunload", this.unloadHandler);
     this.game.close();
   }
-}
 
+  private emit(): void {
+    this.listeners.forEach((listener) => listener());
+  }
+
+  private flushPendingPosts(): void {
+    if (!this.isSynced || this.pendingPosts.length === 0) {
+      return;
+    }
+
+    const queued = this.pendingPosts;
+    this.pendingPosts = [];
+    for (const post of queued) {
+      this.safePostToGame(post);
+    }
+  }
+
+  private safePostToGame(post: RoomPost): void {
+    try {
+      this.game.post(post);
+    } catch (error) {
+      console.error("[The Spy] failed to post room event", post.$, error);
+    }
+  }
+}
 interface AppState {
   screen: "home" | "room";
   currentName: string;

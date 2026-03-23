@@ -18,6 +18,7 @@ raiz.
 
 - `vs bot`: partida local usando a mesma regra de jogo.
 - `multiplayer`: sala online com `usuario` e `sala` obrigatorios.
+- O nome digitado em `room` e exibido para o usuario, mas a rede usa um namespace interno versionado para evitar colisao com historico antigo no vibinet.
 
 ## Regras resumidas
 

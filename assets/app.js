@@ -2263,6 +2263,11 @@ function getCardLabel(card) {
 // src/app.ts
 var STORAGE_NAME_KEY = "the-spy-name";
 var STORAGE_ID_KEY = "the-spy-viewer-id";
+var ROOM_SCHEMA_VERSION = "v2";
+var ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
+function buildNetworkRoomId(roomId) {
+  return ROOM_NAMESPACE + "__" + roomId;
+}
 var SoloController = class {
   constructor(viewerId, viewerName, roomId) {
     this.mode = "solo";
@@ -2362,11 +2367,14 @@ var MultiplayerController = class {
   constructor(viewerId, viewerName, roomId) {
     this.mode = "multiplayer";
     this.listeners = /* @__PURE__ */ new Set();
+    this.isSynced = false;
+    this.pendingPosts = [];
     this.viewerId = viewerId;
     this.viewerName = viewerName;
     this.roomId = roomId;
+    const networkRoomId = buildNetworkRoomId(roomId);
     this.game = new VibiNet.game({
-      room: roomId,
+      room: networkRoomId,
       initial: createInitialRoomState(roomId),
       on_tick: (state) => state,
       on_post: (post, currentState) => applyRoomPost(currentState, post),
@@ -2375,16 +2383,26 @@ var MultiplayerController = class {
       tolerance: 350
     });
     this.unloadHandler = () => {
-      this.game.post({
+      if (!this.isSynced) {
+        return;
+      }
+      this.safePostToGame({
         $: "leave",
         id: viewerId
       });
     };
+    this.refreshTimer = window.setInterval(() => {
+      if (this.isSynced && this.listeners.size > 0) {
+        this.emit();
+      }
+    }, 120);
     window.addEventListener("beforeunload", this.unloadHandler);
     this.game.on_sync(() => {
-      this.listeners.forEach((listener) => listener());
+      this.isSynced = true;
+      this.flushPendingPosts();
+      this.emit();
     });
-    this.game.post({
+    this.post({
       $: "join",
       id: viewerId,
       name: viewerName,
@@ -2401,15 +2419,44 @@ var MultiplayerController = class {
     return this.game.compute_render_state();
   }
   post(post) {
-    this.game.post(post);
+    if (!this.isSynced) {
+      this.pendingPosts.push(post);
+      return;
+    }
+    this.safePostToGame(post);
+    this.emit();
   }
   destroy() {
-    this.game.post({
-      $: "leave",
-      id: this.viewerId
-    });
+    if (this.isSynced) {
+      this.safePostToGame({
+        $: "leave",
+        id: this.viewerId
+      });
+    }
+    this.pendingPosts = [];
+    window.clearInterval(this.refreshTimer);
     window.removeEventListener("beforeunload", this.unloadHandler);
     this.game.close();
+  }
+  emit() {
+    this.listeners.forEach((listener) => listener());
+  }
+  flushPendingPosts() {
+    if (!this.isSynced || this.pendingPosts.length === 0) {
+      return;
+    }
+    const queued = this.pendingPosts;
+    this.pendingPosts = [];
+    for (const post of queued) {
+      this.safePostToGame(post);
+    }
+  }
+  safePostToGame(post) {
+    try {
+      this.game.post(post);
+    } catch (error) {
+      console.error("[The Spy] failed to post room event", post.$, error);
+    }
   }
 };
 function mountApp(root2) {
