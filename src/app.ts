@@ -194,7 +194,12 @@ class MultiplayerController implements Controller {
     this.viewerName = viewerName;
     this.roomId = roomId;
     const networkRoomId = buildNetworkRoomId(roomId);
-    this.initialState = createInitialRoomState(roomId);
+    this.initialState = applyRoomPost(createInitialRoomState(roomId), {
+      $: "join",
+      id: viewerId,
+      name: viewerName,
+      isBot: 0,
+    });
     this.game = new VibiNet.game<RoomState, RoomPost>({
       room: networkRoomId,
       initial: this.initialState,
@@ -442,10 +447,10 @@ function renderHome(state: AppState): string {
 function renderSidebar(state: RoomState, viewerId: string, controller: Controller): string {
   return `
     <aside class="sidebar">
+      ${renderLeavePanel()}
       ${renderPlayersPanel(state, viewerId)}
       ${renderChatPanel(state)}
       ${renderRoomInfoPanel(controller)}
-      ${renderLeavePanel()}
     </aside>
   `;
 }
@@ -456,7 +461,7 @@ function renderPlayersPanel(state: RoomState, viewerId: string): string {
       const seat = getSeat(state, participant.id);
       const seatLabel =
         seat === "spectator"
-          ? "Espectador"
+          ? "spec"
           : seatRoleName(state.match, seat, state.match.status === "waiting" || state.match.status === "ended");
       const youLabel = participant.id === viewerId ? " · voce" : "";
       return `
@@ -527,14 +532,10 @@ function renderChatPanel(state: RoomState): string {
 function renderRoomInfoPanel(controller: Controller): string {
   return `
     <section class="sidebar-panel info-panel">
-      <div>
-        <h2 class="panel-title">Sessao</h2>
-      </div>
-      <div class="info-list">
-        <p class="info-line"><span class="tiny">Sala:</span> <strong>${escapeHtml(controller.roomId)}</strong></p>
-        <p class="info-line"><span class="tiny">Usuario:</span> <strong>${escapeHtml(controller.viewerName)}</strong></p>
-        <p class="info-line"><span class="tiny">Modo:</span> <strong>${controller.mode === "solo" ? "Vs Bot" : "Online"}</strong></p>
-      </div>
+      <h2 class="panel-title">Sessao</h2>
+      <p class="info-line"><span class="tiny">Sala:</span> <strong>${escapeHtml(controller.roomId)}</strong></p>
+      <p class="info-line"><span class="tiny">Usuario:</span> <strong>${escapeHtml(controller.viewerName)}</strong></p>
+      <p class="info-line"><span class="tiny">Modo:</span> <strong>${controller.mode === "solo" ? "Vs Bot" : "Online"}</strong></p>
     </section>
   `;
 }
@@ -542,7 +543,7 @@ function renderRoomInfoPanel(controller: Controller): string {
 function renderLeavePanel(): string {
   return `
     <section class="sidebar-panel sidebar-actions">
-      <button class="ghost-button sidebar-leave-button" data-action="leave-room">Sair da partida</button>
+      <button class="ghost-button sidebar-leave-button" data-action="leave-room">Sair da sala</button>
     </section>
   `;
 }
