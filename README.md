@@ -23,6 +23,8 @@ raiz.
 ## Regras resumidas
 
 - Sao 4 rodadas.
+- No lobby, cada jogador escolhe explicitamente se quer comecar como informante do governo ou comandante espiao.
+- O informante do governo sempre joga primeiro em cada turno.
 - Na 1 e 3, `p1` joga como informante do governo.
 - Na 2 e 4, `p1` joga como comandante espiao.
 - `agent + false file` = `0 x 0`, segue o turno.

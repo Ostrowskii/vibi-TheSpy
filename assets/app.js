@@ -1808,7 +1808,8 @@ var matchPostPacker = {
       fields: {
         id: { $: "String" },
         name: { $: "String" },
-        isBot: { $: "UInt", size: 1 }
+        isBot: { $: "UInt", size: 1 },
+        seat: { $: "UInt", size: 1 }
       }
     },
     choose: {
@@ -1991,9 +1992,15 @@ function playerSeat(match, id) {
   }
   return "spectator";
 }
+function oppositeSlot(slot) {
+  return slot === "p1" ? "p2" : "p1";
+}
+function firstTurnSlot(roundIndex) {
+  return roleForRound(roundIndex, "p1") === "government_informant" ? "p1" : "p2";
+}
 function startRound(match) {
   match.status = "playing";
-  match.turn = "p1";
+  match.turn = firstTurnSlot(match.roundIndex);
   match.hands = {
     p1: deckForRole(roleForRound(match.roundIndex, "p1")),
     p2: deckForRole(roleForRound(match.roundIndex, "p2"))
@@ -2099,7 +2106,7 @@ function handleLeave(state, id) {
   }
   systemMessage(state, `${participant.name} saiu da sala.`);
 }
-function assignReadySeat(state, participant) {
+function assignReadySeat(state, participant, desiredSlot) {
   const match = state.match;
   if (match.status === "ended") {
     state.match = createWaitingMatch(match.matchId + 1);
@@ -2108,17 +2115,27 @@ function assignReadySeat(state, participant) {
   if (current.status !== "waiting") {
     return;
   }
-  if (current.p1Id === participant.id || current.p2Id === participant.id) {
+  const currentSeat = playerSeat(current, participant.id);
+  const targetRoleName = roleNames[roleForRound(0, desiredSlot)].toLowerCase();
+  const occupantId = desiredSlot === "p1" ? current.p1Id : current.p2Id;
+  if (occupantId && occupantId !== participant.id) {
     return;
   }
-  if (!current.p1Id) {
+  if (currentSeat === desiredSlot) {
+    return;
+  }
+  if (currentSeat === "p1") {
+    current.p1Id = null;
+  } else if (currentSeat === "p2") {
+    current.p2Id = null;
+  }
+  if (desiredSlot === "p1") {
     current.p1Id = participant.id;
-    systemMessage(state, `${participant.name} assumiu a vaga de P1.`);
-    return;
-  }
-  if (!current.p2Id) {
+  } else {
     current.p2Id = participant.id;
-    systemMessage(state, `${participant.name} assumiu a vaga de P2.`);
+  }
+  systemMessage(state, `${participant.name} escolheu comecar como ${targetRoleName}.`);
+  if (current.p1Id && current.p2Id) {
     startMatchFromSeats(current);
   }
 }
@@ -2159,7 +2176,7 @@ function applyRoomPost(previous, post) {
         name: post.name,
         isBot: post.isBot === 1
       });
-      assignReadySeat(state, state.participants[post.id]);
+      assignReadySeat(state, state.participants[post.id], post.seat === 0 ? "p1" : "p2");
       return state;
     }
     case "choose": {
@@ -2177,8 +2194,8 @@ function applyRoomPost(previous, post) {
       }
       card.used = true;
       match.selectedCardIds[seat] = card.id;
-      if (seat === "p1") {
-        match.turn = "p2";
+      if (seat === firstTurnSlot(match.roundIndex)) {
+        match.turn = oppositeSlot(seat);
         return state;
       }
       const p1CardId = match.selectedCardIds.p1;
@@ -2214,7 +2231,7 @@ function applyRoomPost(previous, post) {
       }
       if (!match.reveal.roundEnded) {
         match.status = "playing";
-        match.turn = "p1";
+        match.turn = firstTurnSlot(match.roundIndex);
         match.selectedCardIds = { p1: null, p2: null };
         match.reveal = null;
         return state;
@@ -2263,10 +2280,19 @@ function getCardLabel(card) {
 // src/app.ts
 var STORAGE_NAME_KEY = "the-spy-name";
 var STORAGE_ID_KEY = "the-spy-viewer-id";
-var ROOM_SCHEMA_VERSION = "v2";
+var ROOM_SCHEMA_VERSION = "v4";
 var ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
 function buildNetworkRoomId(roomId) {
   return ROOM_NAMESPACE + "__" + roomId;
+}
+function oppositeSlot2(slot) {
+  return slot === "p1" ? "p2" : "p1";
+}
+function currentRoleForSeat(match, seat) {
+  return getRoleForSlot(match.roundIndex, seat);
+}
+function seatRoleName(match, seat, useStartingRole = false) {
+  return getRoleName(useStartingRole ? getRoleForSlot(0, seat) : currentRoleForSeat(match, seat));
 }
 var SoloController = class {
   constructor(viewerId, viewerName, roomId) {
@@ -2328,19 +2354,23 @@ var SoloController = class {
       this.continueTimer = null;
     }
     const match = this.state.match;
-    if (match.status === "waiting" && match.p1Id === this.viewerId && !match.p2Id) {
+    const botSeat = match.p1Id === this.botId ? "p1" : match.p2Id === this.botId ? "p2" : null;
+    const viewerSeat = match.p1Id === this.viewerId ? "p1" : match.p2Id === this.viewerId ? "p2" : null;
+    if (match.status === "waiting" && viewerSeat && !botSeat) {
+      const emptySeat = oppositeSlot2(viewerSeat);
       this.botTimer = window.setTimeout(() => {
         this.post({
           $: "ready",
           id: this.botId,
           name: this.botName,
-          isBot: 1
+          isBot: 1,
+          seat: emptySeat === "p1" ? 0 : 1
         });
       }, 650);
       return;
     }
-    if (match.status === "playing" && match.turn === "p2" && match.p2Id === this.botId) {
-      const card = nextBotCard(match);
+    if (match.status === "playing" && match.turn && botSeat && match.turn === botSeat) {
+      const card = nextBotCard(match, botSeat);
       if (!card) {
         return;
       }
@@ -2353,7 +2383,7 @@ var SoloController = class {
       }, 750);
       return;
     }
-    if (match.status === "revealed" && match.p2Id === this.botId) {
+    if (match.status === "revealed" && botSeat) {
       this.continueTimer = window.setTimeout(() => {
         this.post({
           $: "advance",
@@ -2369,13 +2399,15 @@ var MultiplayerController = class {
     this.listeners = /* @__PURE__ */ new Set();
     this.isSynced = false;
     this.pendingPosts = [];
+    this.lastRenderKey = "";
     this.viewerId = viewerId;
     this.viewerName = viewerName;
     this.roomId = roomId;
     const networkRoomId = buildNetworkRoomId(roomId);
+    this.initialState = createInitialRoomState(roomId);
     this.game = new VibiNet.game({
       room: networkRoomId,
-      initial: createInitialRoomState(roomId),
+      initial: this.initialState,
       on_tick: (state) => state,
       on_post: (post, currentState) => applyRoomPost(currentState, post),
       packer: createPacker(),
@@ -2391,16 +2423,12 @@ var MultiplayerController = class {
         id: viewerId
       });
     };
-    this.refreshTimer = window.setInterval(() => {
-      if (this.isSynced && this.listeners.size > 0) {
-        this.emit();
-      }
-    }, 120);
+    this.installGameHooks();
     window.addEventListener("beforeunload", this.unloadHandler);
     this.game.on_sync(() => {
       this.isSynced = true;
       this.flushPendingPosts();
-      this.emit();
+      this.emitIfChanged(true);
     });
     this.post({
       $: "join",
@@ -2416,7 +2444,7 @@ var MultiplayerController = class {
     };
   }
   getState() {
-    return this.game.compute_render_state();
+    return this.isSynced ? this.game.compute_render_state() : this.initialState;
   }
   post(post) {
     if (!this.isSynced) {
@@ -2424,7 +2452,6 @@ var MultiplayerController = class {
       return;
     }
     this.safePostToGame(post);
-    this.emit();
   }
   destroy() {
     if (this.isSynced) {
@@ -2434,12 +2461,42 @@ var MultiplayerController = class {
       });
     }
     this.pendingPosts = [];
-    window.clearInterval(this.refreshTimer);
     window.removeEventListener("beforeunload", this.unloadHandler);
     this.game.close();
   }
   emit() {
     this.listeners.forEach((listener) => listener());
+  }
+  installGameHooks() {
+    const internalGame = this.game;
+    const addRemotePost = internalGame.add_remote_post;
+    if (typeof addRemotePost === "function") {
+      internalGame.add_remote_post = (post) => {
+        addRemotePost.call(this.game, post);
+        this.emitIfChanged();
+      };
+    }
+    const addLocalPost = internalGame.add_local_post;
+    if (typeof addLocalPost === "function") {
+      internalGame.add_local_post = (name, post) => {
+        addLocalPost.call(this.game, name, post);
+        this.emitIfChanged();
+      };
+    }
+    const removeLocalPost = internalGame.remove_local_post;
+    if (typeof removeLocalPost === "function") {
+      internalGame.remove_local_post = (name) => {
+        removeLocalPost.call(this.game, name);
+        this.emitIfChanged();
+      };
+    }
+  }
+  emitIfChanged(force = false) {
+    const nextKey = JSON.stringify(this.game.compute_render_state());
+    if (force || nextKey !== this.lastRenderKey) {
+      this.lastRenderKey = nextKey;
+      this.emit();
+    }
   }
   flushPendingPosts() {
     if (!this.isSynced || this.pendingPosts.length === 0) {
@@ -2488,13 +2545,6 @@ function render(state, viewerId) {
           <div class="room-title-wrap">
             <span class="eyebrow">Sala ativa</span>
             <h1 class="room-title">The Spy</h1>
-            <div class="room-meta">
-              <span class="meta-pill">Sala ${escapeHtml(state.controller.roomId)}</span>
-              <span class="meta-pill">Usuario ${escapeHtml(state.controller.viewerName)}</span>
-              <span class="tag ${state.controller.mode === "solo" ? "local" : "online"}">
-                ${state.controller.mode === "solo" ? "vs bot" : "online"}
-              </span>
-            </div>
           </div>
           <div class="button-row">
             <button class="ghost-button" data-action="leave-room">Sair da sala</button>
@@ -2506,6 +2556,7 @@ function render(state, viewerId) {
           <aside class="sidebar">
             ${renderPlayersPanel(roomState, viewerId)}
             ${renderChatPanel(roomState)}
+            ${renderRoomInfoPanel(state.controller)}
           </aside>
         </div>
       </section>
@@ -2579,13 +2630,13 @@ function renderHome(state) {
 function renderPlayersPanel(state, viewerId) {
   const rows = getParticipantList(state).map((participant) => {
     const seat = getSeat(state, participant.id);
-    const seatLabel = seat === "spectator" ? "Espectador" : seat.toUpperCase();
+    const seatLabel = seat === "spectator" ? "Espectador" : seatRoleName(state.match, seat, state.match.status === "waiting" || state.match.status === "ended");
     const youLabel = participant.id === viewerId ? " \xB7 voce" : "";
     return `
         <div class="player-row">
           <strong>${escapeHtml(participant.name)}${youLabel}</strong>
           <div class="button-row">
-            <span class="seat-pill ${seat === "spectator" ? "spectator" : ""}">${seatLabel}</span>
+            <span class="seat-pill ${seat === "spectator" ? "spectator" : ""}">${escapeHtml(seatLabel)}</span>
             ${participant.isBot ? '<span class="tag bot">bot</span>' : '<span class="tag">humano</span>'}
           </div>
         </div>
@@ -2636,6 +2687,30 @@ function renderChatPanel(state) {
     </section>
   `;
 }
+function renderRoomInfoPanel(controller) {
+  return `
+    <section class="sidebar-panel info-panel">
+      <div>
+        <h2 class="panel-title">Sessao</h2>
+        <p class="panel-copy">Dados da conexao e identificacao da sala atual.</p>
+      </div>
+      <div class="info-list">
+        <div class="info-item">
+          <span class="tiny">Sala</span>
+          <strong>${escapeHtml(controller.roomId)}</strong>
+        </div>
+        <div class="info-item">
+          <span class="tiny">Usuario</span>
+          <strong>${escapeHtml(controller.viewerName)}</strong>
+        </div>
+        <div class="info-item">
+          <span class="tiny">Modo</span>
+          <strong>${controller.mode === "solo" ? "Vs Bot" : "Online"}</strong>
+        </div>
+      </div>
+    </section>
+  `;
+}
 function renderGamePanel(state, viewerId, mode) {
   const match = state.match;
   const viewerSeat = getSeat(state, viewerId);
@@ -2666,7 +2741,7 @@ function renderGamePanel(state, viewerId, mode) {
 
       <div class="board-footer">
         <span class="tiny">
-          ${mode === "solo" ? "Modo local: o bot joga automaticamente como P2." : "Modo online: a sala sincroniza uma partida por vez via vibinet."}
+          ${mode === "solo" ? "Modo local: o bot ocupa o cargo restante automaticamente." : "Modo online: uma sala comporta uma partida ativa por vez via vibinet."}
         </span>
         ${renderActionFooter(state, viewerId)}
       </div>
@@ -2678,7 +2753,7 @@ function renderRoleCard(label, participantId, state, role) {
   return `
     <article class="role-card">
       <span class="role-pill ${role === "commander_spy" ? "spy" : ""}">${escapeHtml(label)}</span>
-      <h3>${participant ? escapeHtml(participant.name) : "Vaga livre"}</h3>
+      <h3>${participant ? escapeHtml(participant.name) : "Aguardando jogador"}</h3>
       <p>${escapeHtml(getRoleName(role))}</p>
     </article>
   `;
@@ -2687,34 +2762,50 @@ function renderWaitingPanel(state, viewerId, mode) {
   const match = state.match;
   const viewerSeat = getSeat(state, viewerId);
   const ended = match.status === "ended";
-  const readyDisabled = ended ? false : viewerSeat === "p1" || viewerSeat === "p2";
-  const label = ended ? "Ready?" : match.p1Id && !match.p2Id && viewerSeat === "p1" ? "Aguardando P2" : "Ready?";
-  const p1Text = ended ? "Livre para a proxima partida" : match.p1Id ? escapeHtml(state.participants[match.p1Id]?.name ?? "Reservado") : "Aguardando jogador";
-  const p2Text = ended ? "Livre para a proxima partida" : match.p2Id ? escapeHtml(state.participants[match.p2Id]?.name ?? "Reservado") : "Aguardando jogador";
+  const informantSeat = getRoleForSlot(0, "p1") === "government_informant" ? "p1" : "p2";
+  const commanderSeat = oppositeSlot2(informantSeat);
+  const informantOccupantId = ended ? null : informantSeat === "p1" ? match.p1Id : match.p2Id;
+  const commanderOccupantId = ended ? null : commanderSeat === "p1" ? match.p1Id : match.p2Id;
+  const canChooseInformant = !informantOccupantId || informantOccupantId === viewerId;
+  const canChooseCommander = !commanderOccupantId || commanderOccupantId === viewerId;
+  const informantText = informantOccupantId ? escapeHtml(state.participants[informantOccupantId]?.name ?? "Reservado") : "Disponivel";
+  const commanderText = commanderOccupantId ? escapeHtml(state.participants[commanderOccupantId]?.name ?? "Reservado") : "Disponivel";
   return `
     <div class="waiting-panel">
       <div class="status-banner">
         <strong>${escapeHtml(waitingHeadline(match, viewerSeat, mode))}</strong>
         <p class="status-text">
-          O primeiro jogador vira P1. O segundo vira P2. Quem entrar depois
-          assiste como espectador.
+          Escolha o cargo inicial. O informante do governo sempre abre cada turno.
         </p>
       </div>
 
       <div class="waiting-seat-grid">
         <article class="seat-card">
-          <h3>P1</h3>
-          <p>${p1Text}</p>
+          <h3>Comeca como Informante do Governo</h3>
+          <p>${informantText}</p>
         </article>
         <article class="seat-card">
-          <h3>P2</h3>
-          <p>${p2Text}</p>
+          <h3>Comeca como Comandante Espiao</h3>
+          <p>${commanderText}</p>
         </article>
       </div>
 
-      <div class="button-row">
-        <button class="primary-button" data-action="ready" ${readyDisabled ? "disabled" : ""}>
-          ${escapeHtml(label)}
+      <div class="button-row waiting-button-row">
+        <button
+          class="primary-button"
+          data-action="ready-role"
+          data-seat="${informantSeat}"
+          ${canChooseInformant ? "" : "disabled"}
+        >
+          Comecar como informante do governo
+        </button>
+        <button
+          class="secondary-button"
+          data-action="ready-role"
+          data-seat="${commanderSeat}"
+          ${canChooseCommander ? "" : "disabled"}
+        >
+          Comecar como comandante espiao
         </button>
       </div>
     </div>
@@ -2748,10 +2839,6 @@ function renderBoard(state, viewerId) {
   }
   return `
     <div class="game-board">
-      <div class="board-labels">
-        <span>Linha superior: ${escapeHtml(labelPerspective(state, perspective.top, viewerSeat, "adversario"))}</span>
-        <span>Linha inferior: ${escapeHtml(labelPerspective(state, perspective.bottom, viewerSeat, "sua mao"))}</span>
-      </div>
       <div class="board-grid">
         ${grid.join("")}
       </div>
@@ -2798,18 +2885,6 @@ function renderPlayedCard(match, slot, viewerSeat, perspectiveSlot) {
       </div>
     `;
   }
-  const shouldRevealToViewer = viewerSeat === perspectiveSlot;
-  if (shouldRevealToViewer) {
-    const hand = match.hands[slot];
-    const card = hand.find((entry) => entry.id === cardId);
-    if (card) {
-      return `
-        <div class="card face-up ${cardClass(card.kind)}">
-          <span>${escapeHtml(getCardLabel(card.kind))}</span>
-        </div>
-      `;
-    }
-  }
   return '<div class="card face-down"><span>Travada</span></div>';
 }
 function renderActionFooter(state, viewerId) {
@@ -2854,7 +2929,7 @@ function renderResultModal(state, viewerId) {
         </div>
 
         <div class="modal-footer">
-          <span class="tiny">Voltar fecha o popup e devolve a sala ao estado de lobby com o botao ready.</span>
+          <span class="tiny">Voltar fecha o popup e devolve a sala ao estado de lobby com os botoes de cargo.</span>
           <button class="primary-button" data-action="dismiss-result">Voltar para o lobby</button>
         </div>
       </div>
@@ -2927,16 +3002,20 @@ function bindEvents(state, viewerId, rerender) {
     state.screen = "home";
     rerender();
   });
-  document.querySelector('[data-action="ready"]')?.addEventListener("click", () => {
-    if (!state.controller) {
-      return;
-    }
-    state.dismissedMatchId = null;
-    state.controller.post({
-      $: "ready",
-      id: state.controller.viewerId,
-      name: state.controller.viewerName,
-      isBot: 0
+  document.querySelectorAll('[data-action="ready-role"]').forEach((element) => {
+    element.addEventListener("click", () => {
+      if (!state.controller) {
+        return;
+      }
+      const seat = element.dataset.seat === "p2" ? 1 : 0;
+      state.dismissedMatchId = null;
+      state.controller.post({
+        $: "ready",
+        id: state.controller.viewerId,
+        name: state.controller.viewerName,
+        isBot: 0,
+        seat
+      });
     });
   });
   document.querySelectorAll('[data-action="choose-card"]').forEach((element) => {
@@ -2991,27 +3070,28 @@ function bindEvents(state, viewerId, rerender) {
     chatInput.value = "";
   });
 }
-function nextBotCard(match) {
-  const available = match.hands.p2.filter((card) => !card.used);
+function nextBotCard(match, seat) {
+  const available = match.hands[seat].filter((card) => !card.used);
   if (available.length === 0) {
     return null;
   }
-  const p1CardId = match.selectedCardIds.p1;
-  if (!p1CardId) {
+  const opponentSeat = oppositeSlot2(seat);
+  const opponentCardId = match.selectedCardIds[opponentSeat];
+  if (!opponentCardId) {
     return available[0] ?? null;
   }
-  const p1Card = match.hands.p1.find((card) => card.id === p1CardId);
-  const p2Role = getRoleForSlot(match.roundIndex, "p2");
-  if (!p1Card) {
+  const opponentCard = match.hands[opponentSeat].find((card) => card.id === opponentCardId);
+  const seatRole = getRoleForSlot(match.roundIndex, seat);
+  if (!opponentCard) {
     return available[0] ?? null;
   }
-  if (p2Role === "government_informant") {
-    if (p1Card.kind === "spy") {
+  if (seatRole === "government_informant") {
+    if (opponentCard.kind === "spy") {
       return available.find((card) => card.kind === "false_file") ?? available[0] ?? null;
     }
     return available.find((card) => card.kind === "true_file") ?? available[0] ?? null;
   }
-  if (p1Card.kind === "true_file") {
+  if (opponentCard.kind === "true_file") {
     return available.find((card) => card.kind === "spy") ?? available[0] ?? null;
   }
   return available.find((card) => card.kind === "agent") ?? available[0] ?? null;
@@ -3028,20 +3108,9 @@ function boardPerspective(viewerSeat) {
     bottom: "p1"
   };
 }
-function labelPerspective(state, slot, viewerSeat, fallback) {
-  const participantId = slot === "p1" ? state.match.p1Id : state.match.p2Id;
-  const participant = participantId ? state.participants[participantId] : null;
-  if (!participant) {
-    return fallback;
-  }
-  if (viewerSeat === slot) {
-    return "sua mao";
-  }
-  return participant.name;
-}
 function statusHeadline(match, viewerSeat) {
   if (match.status === "waiting") {
-    return "Sala aberta. O jogo comeca assim que P1 e P2 apertarem ready.";
+    return "Sala aberta. Cada jogador escolhe o cargo inicial antes da partida comecar.";
   }
   if (match.status === "ended") {
     return "As quatro rodadas terminaram. Feche o popup e monte outra partida na mesma sala.";
@@ -3052,22 +3121,22 @@ function statusHeadline(match, viewerSeat) {
   if (match.turn === viewerSeat) {
     return "Sua vez de escolher uma carta e travar no centro.";
   }
-  if (match.turn === "p1") {
-    return "P1 escolhe primeiro e P2 responde depois.";
+  if (match.turn) {
+    return `${seatRoleName(match, match.turn)} escolhe agora.`;
   }
-  return "P1 ja travou a carta. Agora e a vez de P2.";
+  return "A rodada esta aguardando a resolucao atual.";
 }
 function waitingHeadline(match, viewerSeat, mode) {
   if (match.status === "ended") {
-    return "Partida encerrada. Clique em ready para iniciar outra na mesma sala.";
+    return "Partida encerrada. Escolha de novo quem comeca como informante e quem comeca como comandante.";
   }
   if (mode === "solo") {
-    return "No modo local, o bot assume a segunda vaga assim que voce apertar ready.";
+    return "No modo local, o bot assume automaticamente o cargo que sobrar.";
   }
-  if (viewerSeat === "p1" && !match.p2Id) {
-    return "Voce ja garantiu P1. Falta apenas o segundo jogador.";
+  if (viewerSeat === "spectator") {
+    return "Escolha um dos dois cargos para entrar na partida. Se ambos estiverem ocupados, voce assiste.";
   }
-  return "Escolha sua vaga e aguarde os dois assentos serem preenchidos.";
+  return "Voce ja escolheu um cargo inicial. Quando os dois assentos estiverem ocupados, a partida comeca.";
 }
 function boardNarration(match, viewerSeat) {
   if (match.status === "revealed" && match.reveal) {
@@ -3076,10 +3145,10 @@ function boardNarration(match, viewerSeat) {
   if (match.turn === viewerSeat) {
     return "Clique numa carta da sua mao para enviar ao centro.";
   }
-  if (match.turn === "p1") {
-    return "P1 decide primeiro. P2 ainda nao pode responder.";
+  if (match.turn) {
+    return `${seatRoleName(match, match.turn)} decide agora. As duas cartas so abrem depois da resposta.`;
   }
-  return "P2 decide agora. Assim que a carta cair, ambas serao reveladas.";
+  return "A jogada atual esta sendo resolvida.";
 }
 function resultSubtitle(match, viewerSeat, state) {
   if (match.winner === "tie") {

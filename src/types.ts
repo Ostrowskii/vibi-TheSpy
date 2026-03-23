@@ -104,6 +104,7 @@ export type RoomPost =
       id: string;
       name: string;
       isBot: 0 | 1;
+      seat: 0 | 1;
     }
   | {
       $: "choose";

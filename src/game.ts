@@ -48,6 +48,7 @@ const matchPostPacker: VibiNet.Packed = {
         id: { $: "String" },
         name: { $: "String" },
         isBot: { $: "UInt", size: 1 },
+        seat: { $: "UInt", size: 1 },
       },
     },
     choose: {
@@ -255,9 +256,17 @@ function playerSeat(match: MatchState, id: string): Seat {
   return "spectator";
 }
 
+function oppositeSlot(slot: PlayerSlot): PlayerSlot {
+  return slot === "p1" ? "p2" : "p1";
+}
+
+function firstTurnSlot(roundIndex: number): PlayerSlot {
+  return roleForRound(roundIndex, "p1") === "government_informant" ? "p1" : "p2";
+}
+
 function startRound(match: MatchState): void {
   match.status = "playing";
-  match.turn = "p1";
+  match.turn = firstTurnSlot(match.roundIndex);
   match.hands = {
     p1: deckForRole(roleForRound(match.roundIndex, "p1")),
     p2: deckForRole(roleForRound(match.roundIndex, "p2")),
@@ -382,7 +391,7 @@ function handleLeave(state: RoomState, id: string): void {
   systemMessage(state, `${participant.name} saiu da sala.`);
 }
 
-function assignReadySeat(state: RoomState, participant: Participant): void {
+function assignReadySeat(state: RoomState, participant: Participant, desiredSlot: PlayerSlot): void {
   const match = state.match;
 
   if (match.status === "ended") {
@@ -394,19 +403,31 @@ function assignReadySeat(state: RoomState, participant: Participant): void {
     return;
   }
 
-  if (current.p1Id === participant.id || current.p2Id === participant.id) {
+  const currentSeat = playerSeat(current, participant.id);
+  const targetRoleName = roleNames[roleForRound(0, desiredSlot)].toLowerCase();
+  const occupantId = desiredSlot === "p1" ? current.p1Id : current.p2Id;
+  if (occupantId && occupantId !== participant.id) {
     return;
   }
 
-  if (!current.p1Id) {
+  if (currentSeat === desiredSlot) {
+    return;
+  }
+
+  if (currentSeat === "p1") {
+    current.p1Id = null;
+  } else if (currentSeat === "p2") {
+    current.p2Id = null;
+  }
+
+  if (desiredSlot === "p1") {
     current.p1Id = participant.id;
-    systemMessage(state, `${participant.name} assumiu a vaga de P1.`);
-    return;
+  } else {
+    current.p2Id = participant.id;
   }
 
-  if (!current.p2Id) {
-    current.p2Id = participant.id;
-    systemMessage(state, `${participant.name} assumiu a vaga de P2.`);
+  systemMessage(state, `${participant.name} escolheu comecar como ${targetRoleName}.`);
+  if (current.p1Id && current.p2Id) {
     startMatchFromSeats(current);
   }
 }
@@ -449,7 +470,7 @@ export function applyRoomPost(previous: RoomState, post: RoomPost): RoomState {
         name: post.name,
         isBot: post.isBot === 1,
       });
-      assignReadySeat(state, state.participants[post.id]);
+      assignReadySeat(state, state.participants[post.id], post.seat === 0 ? "p1" : "p2");
       return state;
     }
     case "choose": {
@@ -471,8 +492,8 @@ export function applyRoomPost(previous: RoomState, post: RoomPost): RoomState {
       card.used = true;
       match.selectedCardIds[seat] = card.id;
 
-      if (seat === "p1") {
-        match.turn = "p2";
+      if (seat === firstTurnSlot(match.roundIndex)) {
+        match.turn = oppositeSlot(seat);
         return state;
       }
 
@@ -513,7 +534,7 @@ export function applyRoomPost(previous: RoomState, post: RoomPost): RoomState {
 
       if (!match.reveal.roundEnded) {
         match.status = "playing";
-        match.turn = "p1";
+        match.turn = firstTurnSlot(match.roundIndex);
         match.selectedCardIds = { p1: null, p2: null };
         match.reveal = null;
         return state;

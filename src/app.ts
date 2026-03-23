@@ -25,12 +25,29 @@ import type {
 
 const STORAGE_NAME_KEY = "the-spy-name";
 const STORAGE_ID_KEY = "the-spy-viewer-id";
-const ROOM_SCHEMA_VERSION = "v2";
+const ROOM_SCHEMA_VERSION = "v4";
 const ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
 
 function buildNetworkRoomId(roomId: string): string {
   return ROOM_NAMESPACE + "__" + roomId;
 }
+
+function oppositeSlot(slot: PlayerSlot): PlayerSlot {
+  return slot === "p1" ? "p2" : "p1";
+}
+
+function firstTurnSlot(roundIndex: number): PlayerSlot {
+  return getRoleForSlot(roundIndex, "p1") === "government_informant" ? "p1" : "p2";
+}
+
+function currentRoleForSeat(match: MatchState, seat: PlayerSlot): Role {
+  return getRoleForSlot(match.roundIndex, seat);
+}
+
+function seatRoleName(match: MatchState, seat: PlayerSlot, useStartingRole = false): string {
+  return getRoleName(useStartingRole ? getRoleForSlot(0, seat) : currentRoleForSeat(match, seat));
+}
+
 
 interface Controller {
   readonly viewerId: string;
@@ -115,21 +132,25 @@ class SoloController implements Controller {
     }
 
     const match = this.state.match;
+    const botSeat = match.p1Id === this.botId ? "p1" : match.p2Id === this.botId ? "p2" : null;
+    const viewerSeat = match.p1Id === this.viewerId ? "p1" : match.p2Id === this.viewerId ? "p2" : null;
 
-    if (match.status === "waiting" && match.p1Id === this.viewerId && !match.p2Id) {
+    if (match.status === "waiting" && viewerSeat && !botSeat) {
+      const emptySeat = oppositeSlot(viewerSeat);
       this.botTimer = window.setTimeout(() => {
         this.post({
           $: "ready",
           id: this.botId,
           name: this.botName,
           isBot: 1,
+          seat: emptySeat === "p1" ? 0 : 1,
         });
       }, 650);
       return;
     }
 
-    if (match.status === "playing" && match.turn === "p2" && match.p2Id === this.botId) {
-      const card = nextBotCard(match);
+    if (match.status === "playing" && match.turn && botSeat && match.turn === botSeat) {
+      const card = nextBotCard(match, botSeat);
       if (!card) {
         return;
       }
@@ -144,7 +165,7 @@ class SoloController implements Controller {
       return;
     }
 
-    if (match.status === "revealed" && match.p2Id === this.botId) {
+    if (match.status === "revealed" && botSeat) {
       this.continueTimer = window.setTimeout(() => {
         this.post({
           $: "advance",
@@ -162,19 +183,21 @@ class MultiplayerController implements Controller {
   readonly mode = "multiplayer" as const;
   private readonly listeners = new Set<() => void>();
   private readonly game: VibiNet<RoomState, RoomPost>;
+  private readonly initialState: RoomState;
   private readonly unloadHandler: () => void;
-  private readonly refreshTimer: number;
   private isSynced = false;
   private pendingPosts: RoomPost[] = [];
+  private lastRenderKey = "";
 
   constructor(viewerId: string, viewerName: string, roomId: string) {
     this.viewerId = viewerId;
     this.viewerName = viewerName;
     this.roomId = roomId;
     const networkRoomId = buildNetworkRoomId(roomId);
+    this.initialState = createInitialRoomState(roomId);
     this.game = new VibiNet.game<RoomState, RoomPost>({
       room: networkRoomId,
-      initial: createInitialRoomState(roomId),
+      initial: this.initialState,
       on_tick: (state) => state,
       on_post: (post, currentState) => applyRoomPost(currentState, post),
       packer: createPacker(),
@@ -192,17 +215,13 @@ class MultiplayerController implements Controller {
       });
     };
 
-    this.refreshTimer = window.setInterval(() => {
-      if (this.isSynced && this.listeners.size > 0) {
-        this.emit();
-      }
-    }, 120);
+    this.installGameHooks();
 
     window.addEventListener("beforeunload", this.unloadHandler);
     this.game.on_sync(() => {
       this.isSynced = true;
       this.flushPendingPosts();
-      this.emit();
+      this.emitIfChanged(true);
     });
     this.post({
       $: "join",
@@ -220,7 +239,7 @@ class MultiplayerController implements Controller {
   }
 
   getState(): RoomState {
-    return this.game.compute_render_state();
+    return this.isSynced ? this.game.compute_render_state() : this.initialState;
   }
 
   post(post: RoomPost): void {
@@ -230,7 +249,6 @@ class MultiplayerController implements Controller {
     }
 
     this.safePostToGame(post);
-    this.emit();
   }
 
   destroy(): void {
@@ -241,13 +259,52 @@ class MultiplayerController implements Controller {
       });
     }
     this.pendingPosts = [];
-    window.clearInterval(this.refreshTimer);
     window.removeEventListener("beforeunload", this.unloadHandler);
     this.game.close();
   }
 
   private emit(): void {
     this.listeners.forEach((listener) => listener());
+  }
+
+  private installGameHooks(): void {
+    const internalGame = this.game as unknown as {
+      add_remote_post?: (post: unknown) => void;
+      add_local_post?: (name: string, post: unknown) => void;
+      remove_local_post?: (name: string) => void;
+    };
+
+    const addRemotePost = internalGame.add_remote_post;
+    if (typeof addRemotePost === "function") {
+      internalGame.add_remote_post = (post: unknown) => {
+        addRemotePost.call(this.game, post);
+        this.emitIfChanged();
+      };
+    }
+
+    const addLocalPost = internalGame.add_local_post;
+    if (typeof addLocalPost === "function") {
+      internalGame.add_local_post = (name: string, post: unknown) => {
+        addLocalPost.call(this.game, name, post);
+        this.emitIfChanged();
+      };
+    }
+
+    const removeLocalPost = internalGame.remove_local_post;
+    if (typeof removeLocalPost === "function") {
+      internalGame.remove_local_post = (name: string) => {
+        removeLocalPost.call(this.game, name);
+        this.emitIfChanged();
+      };
+    }
+  }
+
+  private emitIfChanged(force = false): void {
+    const nextKey = JSON.stringify(this.game.compute_render_state());
+    if (force || nextKey !== this.lastRenderKey) {
+      this.lastRenderKey = nextKey;
+      this.emit();
+    }
   }
 
   private flushPendingPosts(): void {
@@ -270,6 +327,7 @@ class MultiplayerController implements Controller {
     }
   }
 }
+
 interface AppState {
   screen: "home" | "room";
   currentName: string;
@@ -313,13 +371,6 @@ function render(state: AppState, viewerId: string): string {
           <div class="room-title-wrap">
             <span class="eyebrow">Sala ativa</span>
             <h1 class="room-title">The Spy</h1>
-            <div class="room-meta">
-              <span class="meta-pill">Sala ${escapeHtml(state.controller.roomId)}</span>
-              <span class="meta-pill">Usuario ${escapeHtml(state.controller.viewerName)}</span>
-              <span class="tag ${state.controller.mode === "solo" ? "local" : "online"}">
-                ${state.controller.mode === "solo" ? "vs bot" : "online"}
-              </span>
-            </div>
           </div>
           <div class="button-row">
             <button class="ghost-button" data-action="leave-room">Sair da sala</button>
@@ -331,6 +382,7 @@ function render(state: AppState, viewerId: string): string {
           <aside class="sidebar">
             ${renderPlayersPanel(roomState, viewerId)}
             ${renderChatPanel(roomState)}
+            ${renderRoomInfoPanel(state.controller)}
           </aside>
         </div>
       </section>
@@ -407,13 +459,16 @@ function renderPlayersPanel(state: RoomState, viewerId: string): string {
   const rows = getParticipantList(state)
     .map((participant) => {
       const seat = getSeat(state, participant.id);
-      const seatLabel = seat === "spectator" ? "Espectador" : seat.toUpperCase();
+      const seatLabel =
+        seat === "spectator"
+          ? "Espectador"
+          : seatRoleName(state.match, seat, state.match.status === "waiting" || state.match.status === "ended");
       const youLabel = participant.id === viewerId ? " · voce" : "";
       return `
         <div class="player-row">
           <strong>${escapeHtml(participant.name)}${youLabel}</strong>
           <div class="button-row">
-            <span class="seat-pill ${seat === "spectator" ? "spectator" : ""}">${seatLabel}</span>
+            <span class="seat-pill ${seat === "spectator" ? "spectator" : ""}">${escapeHtml(seatLabel)}</span>
             ${participant.isBot ? '<span class="tag bot">bot</span>' : '<span class="tag">humano</span>'}
           </div>
         </div>
@@ -471,6 +526,31 @@ function renderChatPanel(state: RoomState): string {
   `;
 }
 
+function renderRoomInfoPanel(controller: Controller): string {
+  return `
+    <section class="sidebar-panel info-panel">
+      <div>
+        <h2 class="panel-title">Sessao</h2>
+        <p class="panel-copy">Dados da conexao e identificacao da sala atual.</p>
+      </div>
+      <div class="info-list">
+        <div class="info-item">
+          <span class="tiny">Sala</span>
+          <strong>${escapeHtml(controller.roomId)}</strong>
+        </div>
+        <div class="info-item">
+          <span class="tiny">Usuario</span>
+          <strong>${escapeHtml(controller.viewerName)}</strong>
+        </div>
+        <div class="info-item">
+          <span class="tiny">Modo</span>
+          <strong>${controller.mode === "solo" ? "Vs Bot" : "Online"}</strong>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderGamePanel(state: RoomState, viewerId: string, mode: RoomMode): string {
   const match = state.match;
   const viewerSeat = getSeat(state, viewerId);
@@ -502,7 +582,7 @@ function renderGamePanel(state: RoomState, viewerId: string, mode: RoomMode): st
 
       <div class="board-footer">
         <span class="tiny">
-          ${mode === "solo" ? "Modo local: o bot joga automaticamente como P2." : "Modo online: a sala sincroniza uma partida por vez via vibinet."}
+          ${mode === "solo" ? "Modo local: o bot ocupa o cargo restante automaticamente." : "Modo online: uma sala comporta uma partida ativa por vez via vibinet."}
         </span>
         ${renderActionFooter(state, viewerId)}
       </div>
@@ -515,7 +595,7 @@ function renderRoleCard(label: string, participantId: string | null, state: Room
   return `
     <article class="role-card">
       <span class="role-pill ${role === "commander_spy" ? "spy" : ""}">${escapeHtml(label)}</span>
-      <h3>${participant ? escapeHtml(participant.name) : "Vaga livre"}</h3>
+      <h3>${participant ? escapeHtml(participant.name) : "Aguardando jogador"}</h3>
       <p>${escapeHtml(getRoleName(role))}</p>
     </article>
   `;
@@ -525,48 +605,51 @@ function renderWaitingPanel(state: RoomState, viewerId: string, mode: RoomMode):
   const match = state.match;
   const viewerSeat = getSeat(state, viewerId);
   const ended = match.status === "ended";
-  const readyDisabled = ended ? false : viewerSeat === "p1" || viewerSeat === "p2";
-  const label = ended
-    ? "Ready?"
-    : match.p1Id && !match.p2Id && viewerSeat === "p1"
-      ? "Aguardando P2"
-      : "Ready?";
-
-  const p1Text = ended
-    ? "Livre para a proxima partida"
-    : match.p1Id
-      ? escapeHtml(state.participants[match.p1Id]?.name ?? "Reservado")
-      : "Aguardando jogador";
-  const p2Text = ended
-    ? "Livre para a proxima partida"
-    : match.p2Id
-      ? escapeHtml(state.participants[match.p2Id]?.name ?? "Reservado")
-      : "Aguardando jogador";
+  const informantSeat = getRoleForSlot(0, "p1") === "government_informant" ? "p1" : "p2";
+  const commanderSeat = oppositeSlot(informantSeat);
+  const informantOccupantId = ended ? null : informantSeat === "p1" ? match.p1Id : match.p2Id;
+  const commanderOccupantId = ended ? null : commanderSeat === "p1" ? match.p1Id : match.p2Id;
+  const canChooseInformant = !informantOccupantId || informantOccupantId === viewerId;
+  const canChooseCommander = !commanderOccupantId || commanderOccupantId === viewerId;
+  const informantText = informantOccupantId ? escapeHtml(state.participants[informantOccupantId]?.name ?? "Reservado") : "Disponivel";
+  const commanderText = commanderOccupantId ? escapeHtml(state.participants[commanderOccupantId]?.name ?? "Reservado") : "Disponivel";
 
   return `
     <div class="waiting-panel">
       <div class="status-banner">
         <strong>${escapeHtml(waitingHeadline(match, viewerSeat, mode))}</strong>
         <p class="status-text">
-          O primeiro jogador vira P1. O segundo vira P2. Quem entrar depois
-          assiste como espectador.
+          Escolha o cargo inicial. O informante do governo sempre abre cada turno.
         </p>
       </div>
 
       <div class="waiting-seat-grid">
         <article class="seat-card">
-          <h3>P1</h3>
-          <p>${p1Text}</p>
+          <h3>Comeca como Informante do Governo</h3>
+          <p>${informantText}</p>
         </article>
         <article class="seat-card">
-          <h3>P2</h3>
-          <p>${p2Text}</p>
+          <h3>Comeca como Comandante Espiao</h3>
+          <p>${commanderText}</p>
         </article>
       </div>
 
-      <div class="button-row">
-        <button class="primary-button" data-action="ready" ${readyDisabled ? "disabled" : ""}>
-          ${escapeHtml(label)}
+      <div class="button-row waiting-button-row">
+        <button
+          class="primary-button"
+          data-action="ready-role"
+          data-seat="${informantSeat}"
+          ${canChooseInformant ? "" : "disabled"}
+        >
+          Comecar como informante do governo
+        </button>
+        <button
+          class="secondary-button"
+          data-action="ready-role"
+          data-seat="${commanderSeat}"
+          ${canChooseCommander ? "" : "disabled"}
+        >
+          Comecar como comandante espiao
         </button>
       </div>
     </div>
@@ -604,10 +687,6 @@ function renderBoard(state: RoomState, viewerId: string): string {
 
   return `
     <div class="game-board">
-      <div class="board-labels">
-        <span>Linha superior: ${escapeHtml(labelPerspective(state, perspective.top, viewerSeat, "adversario"))}</span>
-        <span>Linha inferior: ${escapeHtml(labelPerspective(state, perspective.bottom, viewerSeat, "sua mao"))}</span>
-      </div>
       <div class="board-grid">
         ${grid.join("")}
       </div>
@@ -666,19 +745,6 @@ function renderPlayedCard(
     `;
   }
 
-  const shouldRevealToViewer = viewerSeat === perspectiveSlot;
-  if (shouldRevealToViewer) {
-    const hand = match.hands[slot];
-    const card = hand.find((entry) => entry.id === cardId);
-    if (card) {
-      return `
-        <div class="card face-up ${cardClass(card.kind)}">
-          <span>${escapeHtml(getCardLabel(card.kind))}</span>
-        </div>
-      `;
-    }
-  }
-
   return '<div class="card face-down"><span>Travada</span></div>';
 }
 
@@ -726,7 +792,7 @@ function renderResultModal(state: RoomState, viewerId: string): string {
         </div>
 
         <div class="modal-footer">
-          <span class="tiny">Voltar fecha o popup e devolve a sala ao estado de lobby com o botao ready.</span>
+          <span class="tiny">Voltar fecha o popup e devolve a sala ao estado de lobby com os botoes de cargo.</span>
           <button class="primary-button" data-action="dismiss-result">Voltar para o lobby</button>
         </div>
       </div>
@@ -808,16 +874,20 @@ function bindEvents(state: AppState, viewerId: string, rerender: () => void): vo
     rerender();
   });
 
-  document.querySelector('[data-action="ready"]')?.addEventListener("click", () => {
-    if (!state.controller) {
-      return;
-    }
-    state.dismissedMatchId = null;
-    state.controller.post({
-      $: "ready",
-      id: state.controller.viewerId,
-      name: state.controller.viewerName,
-      isBot: 0,
+  document.querySelectorAll<HTMLElement>('[data-action="ready-role"]').forEach((element) => {
+    element.addEventListener("click", () => {
+      if (!state.controller) {
+        return;
+      }
+      const seat = element.dataset.seat === "p2" ? 1 : 0;
+      state.dismissedMatchId = null;
+      state.controller.post({
+        $: "ready",
+        id: state.controller.viewerId,
+        name: state.controller.viewerName,
+        isBot: 0,
+        seat,
+      });
     });
   });
 
@@ -877,31 +947,32 @@ function bindEvents(state: AppState, viewerId: string, rerender: () => void): vo
   });
 }
 
-function nextBotCard(match: MatchState): CardState | null {
-  const available = match.hands.p2.filter((card) => !card.used);
+function nextBotCard(match: MatchState, seat: PlayerSlot): CardState | null {
+  const available = match.hands[seat].filter((card) => !card.used);
   if (available.length === 0) {
     return null;
   }
 
-  const p1CardId = match.selectedCardIds.p1;
-  if (!p1CardId) {
+  const opponentSeat = oppositeSlot(seat);
+  const opponentCardId = match.selectedCardIds[opponentSeat];
+  if (!opponentCardId) {
     return available[0] ?? null;
   }
 
-  const p1Card = match.hands.p1.find((card) => card.id === p1CardId);
-  const p2Role = getRoleForSlot(match.roundIndex, "p2");
-  if (!p1Card) {
+  const opponentCard = match.hands[opponentSeat].find((card) => card.id === opponentCardId);
+  const seatRole = getRoleForSlot(match.roundIndex, seat);
+  if (!opponentCard) {
     return available[0] ?? null;
   }
 
-  if (p2Role === "government_informant") {
-    if (p1Card.kind === "spy") {
+  if (seatRole === "government_informant") {
+    if (opponentCard.kind === "spy") {
       return available.find((card) => card.kind === "false_file") ?? available[0] ?? null;
     }
     return available.find((card) => card.kind === "true_file") ?? available[0] ?? null;
   }
 
-  if (p1Card.kind === "true_file") {
+  if (opponentCard.kind === "true_file") {
     return available.find((card) => card.kind === "spy") ?? available[0] ?? null;
   }
   return available.find((card) => card.kind === "agent") ?? available[0] ?? null;
@@ -935,7 +1006,7 @@ function labelPerspective(state: RoomState, slot: PlayerSlot, viewerSeat: Seat, 
 
 function statusHeadline(match: MatchState, viewerSeat: Seat): string {
   if (match.status === "waiting") {
-    return "Sala aberta. O jogo comeca assim que P1 e P2 apertarem ready.";
+    return "Sala aberta. Cada jogador escolhe o cargo inicial antes da partida comecar.";
   }
 
   if (match.status === "ended") {
@@ -950,24 +1021,24 @@ function statusHeadline(match: MatchState, viewerSeat: Seat): string {
     return "Sua vez de escolher uma carta e travar no centro.";
   }
 
-  if (match.turn === "p1") {
-    return "P1 escolhe primeiro e P2 responde depois.";
+  if (match.turn) {
+    return `${seatRoleName(match, match.turn)} escolhe agora.`;
   }
 
-  return "P1 ja travou a carta. Agora e a vez de P2.";
+  return "A rodada esta aguardando a resolucao atual.";
 }
 
 function waitingHeadline(match: MatchState, viewerSeat: Seat, mode: RoomMode): string {
   if (match.status === "ended") {
-    return "Partida encerrada. Clique em ready para iniciar outra na mesma sala.";
+    return "Partida encerrada. Escolha de novo quem comeca como informante e quem comeca como comandante.";
   }
   if (mode === "solo") {
-    return "No modo local, o bot assume a segunda vaga assim que voce apertar ready.";
+    return "No modo local, o bot assume automaticamente o cargo que sobrar.";
   }
-  if (viewerSeat === "p1" && !match.p2Id) {
-    return "Voce ja garantiu P1. Falta apenas o segundo jogador.";
+  if (viewerSeat === "spectator") {
+    return "Escolha um dos dois cargos para entrar na partida. Se ambos estiverem ocupados, voce assiste.";
   }
-  return "Escolha sua vaga e aguarde os dois assentos serem preenchidos.";
+  return "Voce ja escolheu um cargo inicial. Quando os dois assentos estiverem ocupados, a partida comeca.";
 }
 
 function boardNarration(match: MatchState, viewerSeat: Seat): string {
@@ -979,11 +1050,11 @@ function boardNarration(match: MatchState, viewerSeat: Seat): string {
     return "Clique numa carta da sua mao para enviar ao centro.";
   }
 
-  if (match.turn === "p1") {
-    return "P1 decide primeiro. P2 ainda nao pode responder.";
+  if (match.turn) {
+    return `${seatRoleName(match, match.turn)} decide agora. As duas cartas so abrem depois da resposta.`;
   }
 
-  return "P2 decide agora. Assim que a carta cair, ambas serao reveladas.";
+  return "A jogada atual esta sendo resolvida.";
 }
 
 function resultSubtitle(match: MatchState, viewerSeat: Seat, state: RoomState): string {

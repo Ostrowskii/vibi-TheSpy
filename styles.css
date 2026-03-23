@@ -243,13 +243,13 @@ button {
 
 .room-screen {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
 }
 
 .main-column {
   min-width: 0;
+  height: 100%;
   display: grid;
   gap: 18px;
   grid-template-rows: auto minmax(0, 1fr);
@@ -323,13 +323,15 @@ button {
 
 .main-surface {
   min-height: 0;
+  height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 18px;
 }
 
 .game-panel {
   min-height: 0;
+  overflow: hidden;
   padding: 20px;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -373,6 +375,13 @@ button {
   padding: 14px;
 }
 
+.seat-card {
+  min-height: 110px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
 .role-pill {
   background: rgba(132, 197, 255, 0.12);
   color: var(--accent);
@@ -396,6 +405,7 @@ button {
 
 .game-board {
   min-height: 0;
+  min-width: 0;
   padding: 18px;
   border-radius: var(--radius-md);
   border: 1px solid rgba(170, 214, 255, 0.12);
@@ -416,6 +426,7 @@ button {
 
 .board-grid {
   min-height: 0;
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(5, minmax(90px, 1fr));
   grid-template-rows: repeat(4, minmax(98px, 1fr));
@@ -513,8 +524,10 @@ button {
 .sidebar {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(200px, 0.95fr) minmax(260px, 1.25fr);
+  grid-template-rows: minmax(180px, 0.95fr) minmax(260px, 1.2fr) auto;
   gap: 18px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .sidebar-panel {
@@ -585,6 +598,24 @@ button {
   word-break: break-word;
 }
 
+.info-list {
+  display: grid;
+  gap: 10px;
+}
+
+.info-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.waiting-button-row > * {
+  flex: 1 1 260px;
+}
+
 .modal {
   position: fixed;
   inset: 0;
@@ -646,6 +677,8 @@ code {
   .sidebar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: none;
+    overflow: visible;
+    padding-right: 0;
   }
 }
 
