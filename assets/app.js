@@ -2620,22 +2620,18 @@ function renderHome(state) {
     <div class="screen home-screen">
       <section class="home-card">
         <div class="home-hero">
-          <span class="eyebrow">Projeto multiplayer de cartas</span>
           <h1>The Spy</h1>
-          <p>
-            Entre numa sala para jogar online com espectadores e chat, ou valide
-            as quatro rodadas primeiro no modo local contra o bot.
-          </p>
         </div>
 
         <div class="home-actions">
-          <article class="action-card">
-            <h2>Vs Bot</h2>
-            <p>
-              Partida local com o mesmo tabuleiro, regras e alternancia de papeis.
-            </p>
-            <div class="button-row">
-              <button class="secondary-button" data-action="start-solo">Iniciar vs bot</button>
+          <article class="action-card solo-start-card">
+            <div class="solo-button-stack">
+              <button class="secondary-button solo-start-button" data-action="start-solo" data-bot-role="government_informant">
+                vs informante do governo (bot)
+              </button>
+              <button class="secondary-button solo-start-button" data-action="start-solo" data-bot-role="commander_spy">
+                vs comandante espiao (bot)
+              </button>
             </div>
           </article>
 
@@ -3035,18 +3031,29 @@ function bindEvents(state, viewerId, rerender) {
     roomInput.value = state.currentRoom;
     syncMultiplayerButton();
   });
-  document.querySelector('[data-action="start-solo"]')?.addEventListener("click", () => {
-    const name = prepareName(state.currentName);
-    state.currentName = name;
-    saveName(name);
-    const roomId = `solo-${Date.now().toString(36)}`;
-    state.controller?.destroy();
-    const controller = new SoloController(viewerId, name, roomId);
-    controller.subscribe(() => rerender());
-    state.controller = controller;
-    state.dismissedMatchId = null;
-    state.screen = "room";
-    rerender();
+  document.querySelectorAll('[data-action="start-solo"]').forEach((element) => {
+    element.addEventListener("click", () => {
+      const name = prepareName(state.currentName);
+      state.currentName = name;
+      saveName(name);
+      const roomId = `solo-${Date.now().toString(36)}`;
+      const botRole = element.dataset.botRole === "government_informant" ? "government_informant" : "commander_spy";
+      const playerSeat2 = botRole === "government_informant" ? "p2" : "p1";
+      state.controller?.destroy();
+      const controller = new SoloController(viewerId, name, roomId);
+      controller.subscribe(() => rerender());
+      state.controller = controller;
+      state.dismissedMatchId = null;
+      state.screen = "room";
+      controller.post({
+        $: "ready",
+        id: controller.viewerId,
+        name: controller.viewerName,
+        isBot: 0,
+        seat: playerSeat2 === "p1" ? 0 : 1
+      });
+      rerender();
+    });
   });
   document.querySelector('[data-action="start-multiplayer"]')?.addEventListener("click", () => {
     const name = prepareName(state.currentName);

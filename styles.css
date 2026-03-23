@@ -136,6 +136,24 @@ button {
   gap: 16px;
 }
 
+.solo-start-card {
+  align-content: stretch;
+}
+
+.solo-button-stack {
+  height: 100%;
+  display: grid;
+  align-content: center;
+  gap: 16px;
+}
+
+.solo-start-button {
+  min-height: 74px;
+  padding: 14px 18px;
+  font-size: 1.08rem;
+  text-transform: lowercase;
+}
+
 .action-card h2,
 .panel-title,
 .game-panel h2,
