@@ -2766,10 +2766,12 @@ function renderWaitingPanel(state, viewerId, mode) {
   const commanderSeat = oppositeSlot2(informantSeat);
   const informantOccupantId = ended ? null : informantSeat === "p1" ? match.p1Id : match.p2Id;
   const commanderOccupantId = ended ? null : commanderSeat === "p1" ? match.p1Id : match.p2Id;
-  const canChooseInformant = !informantOccupantId || informantOccupantId === viewerId;
-  const canChooseCommander = !commanderOccupantId || commanderOccupantId === viewerId;
-  const informantText = informantOccupantId ? escapeHtml(state.participants[informantOccupantId]?.name ?? "Reservado") : "Disponivel";
-  const commanderText = commanderOccupantId ? escapeHtml(state.participants[commanderOccupantId]?.name ?? "Reservado") : "Disponivel";
+  const canChooseInformant = !informantOccupantId;
+  const canChooseCommander = !commanderOccupantId;
+  const informantName = informantOccupantId ? state.participants[informantOccupantId]?.name ?? "Alguem" : "";
+  const commanderName = commanderOccupantId ? state.participants[commanderOccupantId]?.name ?? "Alguem" : "";
+  const informantText = informantOccupantId ? `${informantOccupantId === viewerId ? "Voce" : informantName} e informante do governo.` : "Clique para ocupar este cargo inicial e abrir cada turno.";
+  const commanderText = commanderOccupantId ? `${commanderOccupantId === viewerId ? "Voce" : commanderName} e comandante espiao.` : "Clique para ocupar este cargo inicial e responder ao informante.";
   return `
     <div class="waiting-panel">
       <div class="status-banner">
@@ -2780,32 +2782,25 @@ function renderWaitingPanel(state, viewerId, mode) {
       </div>
 
       <div class="waiting-seat-grid">
-        <article class="seat-card">
-          <h3>Comeca como Informante do Governo</h3>
-          <p>${informantText}</p>
-        </article>
-        <article class="seat-card">
-          <h3>Comeca como Comandante Espiao</h3>
-          <p>${commanderText}</p>
-        </article>
-      </div>
-
-      <div class="button-row waiting-button-row">
         <button
-          class="primary-button"
+          class="seat-choice ${informantOccupantId ? "occupied" : "available"} ${informantOccupantId === viewerId ? "selected" : ""}"
           data-action="ready-role"
           data-seat="${informantSeat}"
           ${canChooseInformant ? "" : "disabled"}
         >
-          Comecar como informante do governo
+          <span class="seat-choice-kicker">Cargo inicial</span>
+          <strong class="seat-choice-title">Informante do Governo</strong>
+          <span class="seat-choice-copy">${escapeHtml(informantText)}</span>
         </button>
         <button
-          class="secondary-button"
+          class="seat-choice ${commanderOccupantId ? "occupied" : "available"} ${commanderOccupantId === viewerId ? "selected" : ""}"
           data-action="ready-role"
           data-seat="${commanderSeat}"
           ${canChooseCommander ? "" : "disabled"}
         >
-          Comecar como comandante espiao
+          <span class="seat-choice-kicker">Cargo inicial</span>
+          <strong class="seat-choice-title">Comandante Espiao</strong>
+          <span class="seat-choice-copy">${escapeHtml(commanderText)}</span>
         </button>
       </div>
     </div>
