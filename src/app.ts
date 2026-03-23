@@ -74,6 +74,7 @@ class SoloController implements Controller {
   private state: RoomState;
   private botTimer: number | null = null;
   private continueTimer: number | null = null;
+  private plannedBotCardId: string | null = null;
 
   constructor(viewerId: string, viewerName: string, roomId: string) {
     this.viewerId = viewerId;
@@ -152,22 +153,33 @@ class SoloController implements Controller {
       return;
     }
 
-    if (match.status === "playing" && match.turn && botSeat && match.turn === botSeat) {
-      const card = nextBotCard(match, botSeat);
-      if (!card) {
+    if (match.status === "playing" && botSeat) {
+      const botSelectedCardId = match.selectedCardIds[botSeat];
+      if (botSelectedCardId) {
+        this.plannedBotCardId = null;
         return;
       }
 
-      this.botTimer = window.setTimeout(() => {
-        this.post({
-          $: "choose",
-          id: this.botId,
-          cardId: card.id,
-        });
-      }, 750);
+      const card = nextBotCard(match, botSeat, this.plannedBotCardId);
+      if (!card) {
+        this.plannedBotCardId = null;
+        return;
+      }
+
+      this.plannedBotCardId = card.id;
+      if (match.turn === botSeat) {
+        this.botTimer = window.setTimeout(() => {
+          this.post({
+            $: "choose",
+            id: this.botId,
+            cardId: card.id,
+          });
+        }, 750);
+      }
       return;
     }
 
+    this.plannedBotCardId = null;
     if (match.status === "revealed" && botSeat) {
       this.continueTimer = window.setTimeout(() => {
         this.post({
@@ -537,19 +549,57 @@ function renderPlayersPanel(state: RoomState, viewerId: string): string {
 }
 
 function renderChatPanel(state: RoomState): string {
-  const messages = state.chat
-    .map((message) => {
-      if (message.kind === "system") {
+  type ChatGroup =
+    | {
+        kind: "system";
+        lines: string[];
+      }
+    | {
+        kind: "user";
+        authorId: string;
+        authorName: string;
+        lines: string[];
+      };
+
+  const groups: ChatGroup[] = [];
+  for (const message of state.chat) {
+    if (message.kind === "system") {
+      groups.push({
+        kind: "system",
+        lines: [message.text],
+      });
+      continue;
+    }
+
+    const lastGroup = groups[groups.length - 1];
+    if (lastGroup && lastGroup.kind === "user" && lastGroup.authorId === message.authorId) {
+      lastGroup.lines.push(message.text);
+      continue;
+    }
+
+    groups.push({
+      kind: "user",
+      authorId: message.authorId,
+      authorName: message.authorName,
+      lines: [message.text],
+    });
+  }
+
+  const messages = groups
+    .map((group) => {
+      if (group.kind === "system") {
         return `
           <article class="chat-message system">
-            <p>${escapeHtml(message.text)}</p>
+            ${group.lines.map((line) => `<p class="chat-line">${escapeHtml(line)}</p>`).join("")}
           </article>
         `;
       }
 
       return `
-        <article class="chat-message">
-          <p><strong>${escapeHtml(message.authorName)}</strong> - ${escapeHtml(message.text)}</p>
+        <article class="chat-message user">
+          ${group.lines
+            .map((line) => `<p class="chat-line"><strong>${escapeHtml(group.authorName)}</strong> - ${escapeHtml(line)}</p>`)
+            .join("")}
         </article>
       `;
     })
@@ -1043,35 +1093,19 @@ function syncChatUi(state: AppState): void {
   }
 }
 
-function nextBotCard(match: MatchState, seat: PlayerSlot): CardState | null {
+function nextBotCard(match: MatchState, seat: PlayerSlot, plannedCardId: string | null): CardState | null {
   const available = match.hands[seat].filter((card) => !card.used);
   if (available.length === 0) {
     return null;
   }
 
-  const opponentSeat = oppositeSlot(seat);
-  const opponentCardId = match.selectedCardIds[opponentSeat];
-  if (!opponentCardId) {
-    return available[0] ?? null;
+  const plannedCard = plannedCardId ? available.find((card) => card.id === plannedCardId) ?? null : null;
+  if (plannedCard) {
+    return plannedCard;
   }
 
-  const opponentCard = match.hands[opponentSeat].find((card) => card.id === opponentCardId);
-  const seatRole = getRoleForSlot(match.roundIndex, seat);
-  if (!opponentCard) {
-    return available[0] ?? null;
-  }
-
-  if (seatRole === "government_informant") {
-    if (opponentCard.kind === "spy") {
-      return available.find((card) => card.kind === "false_file") ?? available[0] ?? null;
-    }
-    return available.find((card) => card.kind === "true_file") ?? available[0] ?? null;
-  }
-
-  if (opponentCard.kind === "true_file") {
-    return available.find((card) => card.kind === "spy") ?? available[0] ?? null;
-  }
-  return available.find((card) => card.kind === "agent") ?? available[0] ?? null;
+  const randomIndex = Math.floor(Math.random() * available.length);
+  return available[randomIndex] ?? null;
 }
 
 function boardPerspective(viewerSeat: Seat): { top: PlayerSlot; bottom: PlayerSlot } {
