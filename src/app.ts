@@ -628,12 +628,22 @@ function renderWaitingPanel(state: RoomState, viewerId: string): string {
     : commanderOccupantId === viewerId
       ? "Voce e comandante espiao."
       : `${commanderName} e comandante espiao.`;
+  const informantStateClass = informantOccupantId
+    ? informantOccupantId === viewerId
+      ? "selected"
+      : "occupied"
+    : "available";
+  const commanderStateClass = commanderOccupantId
+    ? commanderOccupantId === viewerId
+      ? "selected"
+      : "occupied"
+    : "available";
 
   return `
     <div class="waiting-panel">
       <div class="waiting-seat-grid">
         <button
-          class="seat-choice ${informantOccupantId ? "occupied" : "available"} ${informantOccupantId === viewerId ? "selected" : ""}"
+          class="seat-choice ${informantStateClass}"
           data-action="ready-role"
           data-seat="${informantSeat}"
           ${canChooseInformant ? "" : "disabled"}
@@ -643,7 +653,7 @@ function renderWaitingPanel(state: RoomState, viewerId: string): string {
           <span class="seat-choice-copy">${escapeHtml(informantText)}</span>
         </button>
         <button
-          class="seat-choice ${commanderOccupantId ? "occupied" : "available"} ${commanderOccupantId === viewerId ? "selected" : ""}"
+          class="seat-choice ${commanderStateClass}"
           data-action="ready-role"
           data-seat="${commanderSeat}"
           ${canChooseCommander ? "" : "disabled"}

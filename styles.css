@@ -646,8 +646,20 @@ button {
 }
 
 .seat-choice.selected {
+  background: #d7be99;
   border-color: var(--accent-strong);
-  box-shadow: inset 0 0 0 1px rgba(93, 67, 40, 0.18);
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 0 1px rgba(93, 67, 40, 0.18),
+    var(--shadow-soft);
+}
+
+.seat-choice.selected:hover {
+  border-color: var(--accent-strong);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 0 0 1px rgba(93, 67, 40, 0.18),
+    var(--shadow-soft);
 }
 
 .seat-choice-kicker {
