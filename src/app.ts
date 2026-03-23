@@ -956,6 +956,7 @@ function bindEvents(state: AppState, viewerId: string, rerender: () => void): vo
       const roomId = `solo-${Date.now().toString(36)}`;
       const botRole = element.dataset.botRole === "government_informant" ? "government_informant" : "commander_spy";
       const playerSeat = botRole === "government_informant" ? "p2" : "p1";
+      const botSeat = playerSeat === "p1" ? "p2" : "p1";
       state.controller?.destroy();
       const controller = new SoloController(viewerId, name, roomId);
       controller.subscribe(() => rerender());
@@ -968,6 +969,13 @@ function bindEvents(state: AppState, viewerId: string, rerender: () => void): vo
         name: controller.viewerName,
         isBot: 0,
         seat: playerSeat === "p1" ? 0 : 1,
+      });
+      controller.post({
+        $: "ready",
+        id: getBotIdentity().id,
+        name: getBotIdentity().name,
+        isBot: 1,
+        seat: botSeat === "p1" ? 0 : 1,
       });
       rerender();
     });
