@@ -593,7 +593,9 @@ button {
 
 .seat-choice {
   width: 100%;
-  min-height: 148px;
+  min-height: 136px;
+  height: clamp(136px, 18vh, 164px);
+  max-height: 164px;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);

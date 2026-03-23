@@ -411,6 +411,12 @@ function assignReadySeat(state: RoomState, participant: Participant, desiredSlot
   }
 
   if (currentSeat === desiredSlot) {
+    if (desiredSlot === "p1") {
+      current.p1Id = null;
+    } else {
+      current.p2Id = null;
+    }
+    systemMessage(state, `${participant.name} saiu do cargo de ${targetRoleName}.`);
     return;
   }
 

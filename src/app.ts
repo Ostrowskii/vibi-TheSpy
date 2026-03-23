@@ -571,14 +571,19 @@ function renderGamePanel(state: RoomState, viewerId: string, mode: RoomMode): st
       </div>
     `;
 
-  return `
-    <section class="game-panel">
-      ${gameTop}
-
+  const rolePanel = showWaitingState
+    ? ""
+    : `
       <div class="roles-grid">
         ${renderRoleCard("P1", match.p1Id, state, p1Role)}
         ${renderRoleCard("P2", match.p2Id, state, p2Role)}
       </div>
+    `;
+
+  return `
+    <section class="game-panel">
+      ${gameTop}
+      ${rolePanel}
 
       ${showWaitingState ? renderWaitingPanel(state, viewerId, mode) : renderBoard(state, viewerId)}
 
@@ -611,16 +616,20 @@ function renderWaitingPanel(state: RoomState, viewerId: string, mode: RoomMode):
   const commanderSeat = oppositeSlot(informantSeat);
   const informantOccupantId = ended ? null : informantSeat === "p1" ? match.p1Id : match.p2Id;
   const commanderOccupantId = ended ? null : commanderSeat === "p1" ? match.p1Id : match.p2Id;
-  const canChooseInformant = !informantOccupantId;
-  const canChooseCommander = !commanderOccupantId;
+  const canChooseInformant = !informantOccupantId || informantOccupantId === viewerId;
+  const canChooseCommander = !commanderOccupantId || commanderOccupantId === viewerId;
   const informantName = informantOccupantId ? state.participants[informantOccupantId]?.name ?? "Alguem" : "";
   const commanderName = commanderOccupantId ? state.participants[commanderOccupantId]?.name ?? "Alguem" : "";
-  const informantText = informantOccupantId
-    ? `${informantOccupantId === viewerId ? "Voce" : informantName} e informante do governo.`
-    : "Clique para ocupar este cargo inicial e abrir cada turno.";
-  const commanderText = commanderOccupantId
-    ? `${commanderOccupantId === viewerId ? "Voce" : commanderName} e comandante espiao.`
-    : "Clique para ocupar este cargo inicial e responder ao informante.";
+  const informantText = !informantOccupantId
+    ? "Entrar como informante do governo. Esse cargo abre cada turno."
+    : informantOccupantId === viewerId
+      ? "Voce e informante do governo. Clique novamente para sair desse cargo."
+      : `${informantName} e informante do governo.`;
+  const commanderText = !commanderOccupantId
+    ? "Entrar como comandante espiao. Esse cargo responde ao informante."
+    : commanderOccupantId === viewerId
+      ? "Voce e comandante espiao. Clique novamente para sair desse cargo."
+      : `${commanderName} e comandante espiao.`;
 
   return `
     <div class="waiting-panel">
