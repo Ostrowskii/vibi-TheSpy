@@ -448,9 +448,9 @@ function renderSidebar(state: RoomState, viewerId: string, controller: Controlle
   return `
     <aside class="sidebar">
       ${renderLeavePanel()}
+      ${renderRoomInfoPanel(controller)}
       ${renderPlayersPanel(state, viewerId)}
       ${renderChatPanel(state)}
-      ${renderRoomInfoPanel(controller)}
     </aside>
   `;
 }
@@ -543,7 +543,7 @@ function renderRoomInfoPanel(controller: Controller): string {
 function renderLeavePanel(): string {
   return `
     <section class="sidebar-panel sidebar-actions">
-      <button class="ghost-button sidebar-leave-button" data-action="leave-room">Sair da sala</button>
+      <button class="ghost-button sidebar-leave-button" data-action="leave-room">Sair da partida</button>
     </section>
   `;
 }
