@@ -366,26 +366,10 @@ function render(state: AppState, viewerId: string): string {
 
   return `
     <div class="screen room-screen">
-      <section class="main-column">
-        <header class="room-header">
-          <div class="room-title-wrap">
-            <span class="eyebrow">Sala ativa</span>
-            <h1 class="room-title">The Spy</h1>
-          </div>
-          <div class="button-row">
-            <button class="ghost-button" data-action="leave-room">Sair da sala</button>
-          </div>
-        </header>
-
-        <div class="main-surface">
-          ${renderGamePanel(roomState, viewerId, state.controller.mode)}
-          <aside class="sidebar">
-            ${renderPlayersPanel(roomState, viewerId)}
-            ${renderChatPanel(roomState)}
-            ${renderRoomInfoPanel(state.controller)}
-          </aside>
-        </div>
-      </section>
+      <div class="main-surface">
+        ${renderGamePanel(roomState, viewerId, state.controller.mode)}
+        ${renderSidebar(roomState, viewerId, state.controller)}
+      </div>
       ${shouldOpenModal ? renderResultModal(roomState, viewerId) : ""}
     </div>
   `;
@@ -455,6 +439,17 @@ function renderHome(state: AppState): string {
   `;
 }
 
+function renderSidebar(state: RoomState, viewerId: string, controller: Controller): string {
+  return `
+    <aside class="sidebar">
+      ${renderPlayersPanel(state, viewerId)}
+      ${renderChatPanel(state)}
+      ${renderRoomInfoPanel(controller)}
+      ${renderLeavePanel()}
+    </aside>
+  `;
+}
+
 function renderPlayersPanel(state: RoomState, viewerId: string): string {
   const rows = getParticipantList(state)
     .map((participant) => {
@@ -477,7 +472,7 @@ function renderPlayersPanel(state: RoomState, viewerId: string): string {
     .join("");
 
   return `
-    <section class="sidebar-panel">
+    <section class="sidebar-panel players-panel">
       <div>
         <h2 class="panel-title">Conectados</h2>
       </div>
@@ -491,8 +486,16 @@ function renderPlayersPanel(state: RoomState, viewerId: string): string {
 function renderChatPanel(state: RoomState): string {
   const messages = state.chat
     .map((message) => {
+      if (message.kind === "system") {
+        return `
+          <article class="chat-message system">
+            <p>${escapeHtml(message.text)}</p>
+          </article>
+        `;
+      }
+
       return `
-        <article class="chat-message ${message.kind === "system" ? "system" : ""}">
+        <article class="chat-message">
           <strong>${escapeHtml(message.authorName)}</strong>
           <p>${escapeHtml(message.text)}</p>
         </article>
@@ -545,6 +548,14 @@ function renderRoomInfoPanel(controller: Controller): string {
   `;
 }
 
+function renderLeavePanel(): string {
+  return `
+    <section class="sidebar-panel sidebar-actions">
+      <button class="ghost-button sidebar-leave-button" data-action="leave-room">Sair da partida</button>
+    </section>
+  `;
+}
+
 function renderGamePanel(state: RoomState, viewerId: string, mode: RoomMode): string {
   const match = state.match;
   const viewerSeat = getSeat(state, viewerId);
@@ -581,7 +592,7 @@ function renderGamePanel(state: RoomState, viewerId: string, mode: RoomMode): st
       ${gameTop}
       ${rolePanel}
 
-      ${showWaitingState ? renderWaitingPanel(state, viewerId, mode) : renderBoard(state, viewerId)}
+      ${showWaitingState ? renderWaitingPanel(state, viewerId) : renderBoard(state, viewerId)}
 
       <div class="board-footer">
         ${mode === "solo" ? '<span class="tiny">Modo local: o bot ocupa o cargo restante automaticamente.</span>' : ""}
@@ -602,7 +613,7 @@ function renderRoleCard(label: string, participantId: string | null, state: Room
   `;
 }
 
-function renderWaitingPanel(state: RoomState, viewerId: string, mode: RoomMode): string {
+function renderWaitingPanel(state: RoomState, viewerId: string): string {
   const match = state.match;
   const viewerSeat = getSeat(state, viewerId);
   const ended = match.status === "ended";
@@ -616,14 +627,14 @@ function renderWaitingPanel(state: RoomState, viewerId: string, mode: RoomMode):
   const commanderName = commanderOccupantId ? state.participants[commanderOccupantId]?.name ?? "Alguem" : "";
   const waitingCopy = statusHeadline(match, viewerSeat);
   const informantText = !informantOccupantId
-    ? "Entrar como informante do governo. Esse cargo abre cada turno."
+    ? "Entrar como informante do governo."
     : informantOccupantId === viewerId
-      ? "Voce e informante do governo. Clique novamente para sair desse cargo."
+      ? "Voce e informante do governo."
       : `${informantName} e informante do governo.`;
   const commanderText = !commanderOccupantId
-    ? "Entrar como comandante espiao. Esse cargo responde ao informante."
+    ? "Entrar como comandante espiao."
     : commanderOccupantId === viewerId
-      ? "Voce e comandante espiao. Clique novamente para sair desse cargo."
+      ? "Voce e comandante espiao."
       : `${commanderName} e comandante espiao.`;
 
   return `
