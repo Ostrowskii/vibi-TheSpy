@@ -1049,16 +1049,20 @@ function saveName(name: string): void {
 }
 
 function loadViewerId(): string {
-  const existing = window.localStorage.getItem(STORAGE_ID_KEY);
+  const existing = window.sessionStorage.getItem(STORAGE_ID_KEY);
   if (existing) {
     return existing;
   }
+
+  // Older builds stored the viewer id in localStorage, which made all tabs
+  // share the same identity. Clearing it here prevents cross-tab seat collisions.
+  window.localStorage.removeItem(STORAGE_ID_KEY);
 
   const next =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `viewer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  window.localStorage.setItem(STORAGE_ID_KEY, next);
+  window.sessionStorage.setItem(STORAGE_ID_KEY, next);
   return next;
 }
 

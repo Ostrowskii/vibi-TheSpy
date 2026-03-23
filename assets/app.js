@@ -3131,12 +3131,13 @@ function saveName(name) {
   window.localStorage.setItem(STORAGE_NAME_KEY, name);
 }
 function loadViewerId() {
-  const existing = window.localStorage.getItem(STORAGE_ID_KEY);
+  const existing = window.sessionStorage.getItem(STORAGE_ID_KEY);
   if (existing) {
     return existing;
   }
+  window.localStorage.removeItem(STORAGE_ID_KEY);
   const next = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `viewer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  window.localStorage.setItem(STORAGE_ID_KEY, next);
+  window.sessionStorage.setItem(STORAGE_ID_KEY, next);
   return next;
 }
 function escapeHtml(value) {
