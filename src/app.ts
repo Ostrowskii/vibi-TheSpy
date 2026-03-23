@@ -185,6 +185,7 @@ class MultiplayerController implements Controller {
   private readonly game: VibiNet<RoomState, RoomPost>;
   private readonly initialState: RoomState;
   private readonly unloadHandler: () => void;
+  private readonly refreshTimerIds = new Set<number>();
   private isSynced = false;
   private pendingPosts: RoomPost[] = [];
   private lastRenderKey = "";
@@ -264,6 +265,7 @@ class MultiplayerController implements Controller {
       });
     }
     this.pendingPosts = [];
+    this.clearRefreshTimers();
     window.removeEventListener("beforeunload", this.unloadHandler);
     this.game.close();
   }
@@ -274,24 +276,42 @@ class MultiplayerController implements Controller {
 
   private installGameHooks(): void {
     const internalGame = this.game as unknown as {
-      add_remote_post?: (post: unknown) => void;
       add_local_post?: (name: string, post: unknown) => void;
       remove_local_post?: (name: string) => void;
+      client_api?: {
+        watch?: (room: string, packer: unknown, handler?: (post: unknown) => void) => void;
+        load?: (room: string, from: number, packer: unknown, handler?: (post: unknown) => void) => void;
+      };
     };
 
-    const addRemotePost = internalGame.add_remote_post;
-    if (typeof addRemotePost === "function") {
-      internalGame.add_remote_post = (post: unknown) => {
-        addRemotePost.call(this.game, post);
-        this.emitIfChanged();
-      };
+    const clientApi = internalGame.client_api;
+    if (clientApi) {
+      const watch = clientApi.watch;
+      if (typeof watch === "function") {
+        clientApi.watch = (room: string, packer: unknown, handler?: (post: unknown) => void) => {
+          watch.call(clientApi, room, packer, (post: unknown) => {
+            handler?.(post);
+            this.queueRefreshPasses();
+          });
+        };
+      }
+
+      const load = clientApi.load;
+      if (typeof load === "function") {
+        clientApi.load = (room: string, from: number, packer: unknown, handler?: (post: unknown) => void) => {
+          load.call(clientApi, room, from, packer, (post: unknown) => {
+            handler?.(post);
+            this.queueRefreshPasses();
+          });
+        };
+      }
     }
 
     const addLocalPost = internalGame.add_local_post;
     if (typeof addLocalPost === "function") {
       internalGame.add_local_post = (name: string, post: unknown) => {
         addLocalPost.call(this.game, name, post);
-        this.emitIfChanged();
+        this.queueRefreshPasses();
       };
     }
 
@@ -299,7 +319,7 @@ class MultiplayerController implements Controller {
     if (typeof removeLocalPost === "function") {
       internalGame.remove_local_post = (name: string) => {
         removeLocalPost.call(this.game, name);
-        this.emitIfChanged();
+        this.queueRefreshPasses();
       };
     }
   }
@@ -310,6 +330,35 @@ class MultiplayerController implements Controller {
       this.lastRenderKey = nextKey;
       this.emit();
     }
+  }
+
+  private queueRefreshPasses(): void {
+    this.emitIfChanged();
+    this.queueRefreshAfter(80);
+    this.queueRefreshAfter(this.toleranceWindowMs());
+  }
+
+  private queueRefreshAfter(delayMs: number): void {
+    const timerId = window.setTimeout(() => {
+      this.refreshTimerIds.delete(timerId);
+      if (!this.isSynced) {
+        return;
+      }
+      this.emitIfChanged();
+    }, delayMs);
+    this.refreshTimerIds.add(timerId);
+  }
+
+  private clearRefreshTimers(): void {
+    for (const timerId of this.refreshTimerIds) {
+      window.clearTimeout(timerId);
+    }
+    this.refreshTimerIds.clear();
+  }
+
+  private toleranceWindowMs(): number {
+    const tickMs = Math.ceil(1000 / this.game.tick_rate);
+    return Math.max(160, this.game.tolerance + tickMs);
   }
 
   private flushPendingPosts(): void {

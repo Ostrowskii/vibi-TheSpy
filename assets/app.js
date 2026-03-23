@@ -2403,6 +2403,7 @@ var MultiplayerController = class {
   constructor(viewerId, viewerName, roomId) {
     this.mode = "multiplayer";
     this.listeners = /* @__PURE__ */ new Set();
+    this.refreshTimerIds = /* @__PURE__ */ new Set();
     this.isSynced = false;
     this.pendingPosts = [];
     this.lastRenderKey = "";
@@ -2472,6 +2473,7 @@ var MultiplayerController = class {
       });
     }
     this.pendingPosts = [];
+    this.clearRefreshTimers();
     window.removeEventListener("beforeunload", this.unloadHandler);
     this.game.close();
   }
@@ -2480,25 +2482,39 @@ var MultiplayerController = class {
   }
   installGameHooks() {
     const internalGame = this.game;
-    const addRemotePost = internalGame.add_remote_post;
-    if (typeof addRemotePost === "function") {
-      internalGame.add_remote_post = (post) => {
-        addRemotePost.call(this.game, post);
-        this.emitIfChanged();
-      };
+    const clientApi = internalGame.client_api;
+    if (clientApi) {
+      const watch = clientApi.watch;
+      if (typeof watch === "function") {
+        clientApi.watch = (room, packer, handler) => {
+          watch.call(clientApi, room, packer, (post) => {
+            handler?.(post);
+            this.queueRefreshPasses();
+          });
+        };
+      }
+      const load = clientApi.load;
+      if (typeof load === "function") {
+        clientApi.load = (room, from, packer, handler) => {
+          load.call(clientApi, room, from, packer, (post) => {
+            handler?.(post);
+            this.queueRefreshPasses();
+          });
+        };
+      }
     }
     const addLocalPost = internalGame.add_local_post;
     if (typeof addLocalPost === "function") {
       internalGame.add_local_post = (name, post) => {
         addLocalPost.call(this.game, name, post);
-        this.emitIfChanged();
+        this.queueRefreshPasses();
       };
     }
     const removeLocalPost = internalGame.remove_local_post;
     if (typeof removeLocalPost === "function") {
       internalGame.remove_local_post = (name) => {
         removeLocalPost.call(this.game, name);
-        this.emitIfChanged();
+        this.queueRefreshPasses();
       };
     }
   }
@@ -2508,6 +2524,31 @@ var MultiplayerController = class {
       this.lastRenderKey = nextKey;
       this.emit();
     }
+  }
+  queueRefreshPasses() {
+    this.emitIfChanged();
+    this.queueRefreshAfter(80);
+    this.queueRefreshAfter(this.toleranceWindowMs());
+  }
+  queueRefreshAfter(delayMs) {
+    const timerId = window.setTimeout(() => {
+      this.refreshTimerIds.delete(timerId);
+      if (!this.isSynced) {
+        return;
+      }
+      this.emitIfChanged();
+    }, delayMs);
+    this.refreshTimerIds.add(timerId);
+  }
+  clearRefreshTimers() {
+    for (const timerId of this.refreshTimerIds) {
+      window.clearTimeout(timerId);
+    }
+    this.refreshTimerIds.clear();
+  }
+  toleranceWindowMs() {
+    const tickMs = Math.ceil(1e3 / this.game.tick_rate);
+    return Math.max(160, this.game.tolerance + tickMs);
   }
   flushPendingPosts() {
     if (!this.isSynced || this.pendingPosts.length === 0) {
