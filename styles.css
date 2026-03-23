@@ -498,13 +498,13 @@ button {
 }
 
 .players-panel {
-  flex: 1 1 45%;
+  flex: 1 1 35%;
   min-height: 160px;
-  max-height: 45%;
+  max-height: 35%;
 }
 
 .chat-panel {
-  flex: 1 1 45%;
+  flex: 1 1 55%;
   min-height: 220px;
   grid-template-rows: auto minmax(0, 1fr) auto;
 }

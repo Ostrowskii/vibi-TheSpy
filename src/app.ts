@@ -501,8 +501,7 @@ function renderChatPanel(state: RoomState): string {
 
       return `
         <article class="chat-message">
-          <strong>${escapeHtml(message.authorName)}</strong>
-          <p>${escapeHtml(message.text)}</p>
+          <p><strong>${escapeHtml(message.authorName)}</strong> - "${escapeHtml(message.text)}"</p>
         </article>
       `;
     })
