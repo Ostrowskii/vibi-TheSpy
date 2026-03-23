@@ -1022,19 +1022,6 @@ function statusHeadline(match: MatchState, viewerSeat: Seat): string {
   return "A rodada esta aguardando a resolucao atual.";
 }
 
-function waitingHeadline(match: MatchState, viewerSeat: Seat, mode: RoomMode): string {
-  if (match.status === "ended") {
-    return "Partida encerrada. Escolha de novo quem comeca como informante e quem comeca como comandante.";
-  }
-  if (mode === "solo") {
-    return "No modo local, o bot assume automaticamente o cargo que sobrar.";
-  }
-  if (viewerSeat === "spectator") {
-    return "Escolha um dos dois cargos para entrar na partida. Se ambos estiverem ocupados, voce assiste.";
-  }
-  return "Voce ja escolheu um cargo inicial. Quando os dois assentos estiverem ocupados, a partida comeca.";
-}
-
 function boardNarration(match: MatchState, viewerSeat: Seat): string {
   if (match.status === "revealed" && match.reveal) {
     return `${match.reveal.comboLabel} · ${match.reveal.roundEnded ? "rodada encerrada" : "nenhuma pontuacao"}`;
