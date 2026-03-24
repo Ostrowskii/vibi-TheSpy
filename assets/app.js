@@ -2297,6 +2297,9 @@ function buildNetworkRoomId(roomId) {
 function oppositeSlot2(slot) {
   return slot === "p1" ? "p2" : "p1";
 }
+function firstTurnSlot2(roundIndex) {
+  return getRoleForSlot(roundIndex, "p1") === "government_informant" ? "p1" : "p2";
+}
 function currentRoleForSeat(match, seat) {
   return getRoleForSlot(match.roundIndex, seat);
 }
@@ -2304,7 +2307,7 @@ function seatRoleName(match, seat, useStartingRole = false) {
   return getRoleName(useStartingRole ? getRoleForSlot(0, seat) : currentRoleForSeat(match, seat));
 }
 var SoloController = class {
-  constructor(viewerId, viewerName, roomId) {
+  constructor(viewerId, viewerName, roomId, viewerSeat) {
     this.mode = "solo";
     this.listeners = /* @__PURE__ */ new Set();
     this.botId = getBotIdentity().id;
@@ -2316,18 +2319,34 @@ var SoloController = class {
     this.viewerName = viewerName;
     this.roomId = roomId;
     this.state = createInitialRoomState(roomId);
-    this.post({
+    this.state = applyRoomPost(this.state, {
       $: "join",
       id: viewerId,
       name: viewerName,
       isBot: 0
     });
-    this.post({
+    this.state = applyRoomPost(this.state, {
       $: "join",
       id: this.botId,
       name: this.botName,
       isBot: 1
     });
+    const botSeat = oppositeSlot2(viewerSeat);
+    this.state = applyRoomPost(this.state, {
+      $: "ready",
+      id: viewerId,
+      name: viewerName,
+      isBot: 0,
+      seat: viewerSeat === "p1" ? 0 : 1
+    });
+    this.state = applyRoomPost(this.state, {
+      $: "ready",
+      id: this.botId,
+      name: this.botName,
+      isBot: 1,
+      seat: botSeat === "p1" ? 0 : 1
+    });
+    this.maybeScheduleBot();
   }
   subscribe(listener) {
     this.listeners.add(listener);
@@ -2604,13 +2623,16 @@ function render(state, viewerId) {
   const roomState = state.controller.getState();
   const match = roomState.match;
   const shouldOpenModal = match.status === "ended" && state.dismissedMatchId !== match.matchId && match.roundSummaries.length > 0;
+  if (state.screen === "solo" && state.controller.mode === "solo") {
+    return renderSoloScreen(roomState, viewerId, shouldOpenModal);
+  }
   return `
     <div class="screen room-screen">
       <div class="main-surface">
-        ${renderGamePanel(roomState, viewerId, state.controller.mode)}
+        ${renderGamePanel(roomState, viewerId)}
         ${renderSidebar(roomState, viewerId, state.controller)}
       </div>
-      ${shouldOpenModal ? renderResultModal(roomState, viewerId) : ""}
+      ${shouldOpenModal ? renderResultModal(roomState, viewerId, "multiplayer") : ""}
     </div>
   `;
 }
@@ -2671,6 +2693,63 @@ function renderHome(state) {
         </div>
       </section>
     </div>
+  `;
+}
+function renderSoloScreen(state, viewerId, shouldOpenModal) {
+  return `
+    <div class="screen solo-screen">
+      <div class="main-surface solo-surface">
+        ${renderSoloGamePanel(state, viewerId)}
+        ${renderSoloSidebar(state, viewerId)}
+      </div>
+      ${shouldOpenModal ? renderResultModal(state, viewerId, "solo") : ""}
+    </div>
+  `;
+}
+function renderSoloGamePanel(state, viewerId) {
+  const match = state.match;
+  const viewerSeat = getSeat(state, viewerId);
+  const roundLabel = match.status === "ended" ? "Partida encerrada" : `Rodada ${Math.min(match.roundIndex + 1, 4)} / 4`;
+  return `
+    <section class="game-panel solo-game-panel">
+      <div class="game-top">
+        <div class="status-block">
+          <span class="eyebrow">${escapeHtml(roundLabel)}</span>
+          <p class="status-text">${escapeHtml(soloStatusHeadline(match, viewerSeat))}</p>
+        </div>
+        <div class="button-row">
+          <span class="score-pill">Voce ${viewerScore(match, viewerSeat)} pts</span>
+          <span class="score-pill">Bot ${opponentScore(match, viewerSeat)} pts</span>
+        </div>
+      </div>
+
+      ${renderBoard(state, viewerId)}
+
+      <div class="board-footer">
+        ${renderActionFooter(state, viewerId)}
+      </div>
+    </section>
+  `;
+}
+function renderSoloSidebar(state, viewerId) {
+  return `
+    <aside class="sidebar solo-sidebar">
+      ${renderLeavePanel()}
+      ${renderSoloLogPanel(state, viewerId)}
+    </aside>
+  `;
+}
+function renderSoloLogPanel(state, viewerId) {
+  const entries = getSoloLogEntries(state, viewerId);
+  return `
+    <section class="sidebar-panel solo-log-panel">
+      <div>
+        <h2 class="panel-title">Log de partida</h2>
+      </div>
+      <div class="chat-list solo-log-list">
+        ${entries.map((entry) => `<p class="solo-log-entry">${escapeHtml(entry)}</p>`).join("")}
+      </div>
+    </section>
   `;
 }
 function renderSidebar(state, viewerId, controller) {
@@ -2783,7 +2862,7 @@ function renderLeavePanel() {
     </section>
   `;
 }
-function renderGamePanel(state, viewerId, mode) {
+function renderGamePanel(state, viewerId) {
   const match = state.match;
   const viewerSeat = getSeat(state, viewerId);
   const roundLabel = `Rodada ${Math.min(match.roundIndex + 1, 4)} / 4`;
@@ -2816,7 +2895,6 @@ function renderGamePanel(state, viewerId, mode) {
       ${showWaitingState ? renderWaitingPanel(state, viewerId) : renderBoard(state, viewerId)}
 
       <div class="board-footer">
-        ${mode === "solo" ? '<span class="tiny">Modo local: o bot ocupa o cargo restante automaticamente.</span>' : ""}
         ${renderActionFooter(state, viewerId)}
       </div>
     </section>
@@ -2964,11 +3042,85 @@ function renderActionFooter(state, viewerId) {
     </button>
   `;
 }
-function renderResultModal(state, viewerId) {
+function getSoloLogEntries(state, viewerId) {
+  const match = state.match;
+  const viewerSeat = getSeat(state, viewerId);
+  const entries = [];
+  if (viewerSeat === "p1" || viewerSeat === "p2") {
+    const botSeat = oppositeSlot2(viewerSeat);
+    const botId = botSeat === "p1" ? match.p1Id : match.p2Id;
+    const botName = botId ? state.participants[botId]?.name ?? "Cipher Bot" : "Cipher Bot";
+    entries.push(`Voce comeca como ${seatRoleName(match, viewerSeat, true).toLowerCase()}.`);
+    entries.push(`${botName} comeca como ${seatRoleName(match, botSeat, true).toLowerCase()}.`);
+  }
+  for (const summary of match.roundSummaries) {
+    entries.push(`Rodada ${summary.round}: ${summary.reason}`);
+  }
+  if (match.status === "playing") {
+    const currentRole = match.turn ? seatRoleName(match, match.turn).toLowerCase() : "";
+    const currentTurnLine = currentRole ? `${capitalizeLine(currentRole)} abre o turno da rodada ${match.roundIndex + 1}.` : `Rodada ${match.roundIndex + 1} em andamento.`;
+    entries.push(currentTurnLine);
+    const firstSeat = firstTurnSlot2(match.roundIndex);
+    const secondSeat = oppositeSlot2(firstSeat);
+    if (match.selectedCardIds[firstSeat] && !match.selectedCardIds[secondSeat]) {
+      entries.push(`${seatLabelForLog(state, match, secondSeat, viewerSeat)} ainda vai responder ao centro.`);
+    }
+  }
+  if (match.status === "revealed" && match.reveal && !match.reveal.roundEnded) {
+    entries.push(match.reveal.summary);
+  }
+  if (match.status === "ended") {
+    entries.push(`Partida encerrada. ${matchWinnerLabel(match, state)}.`);
+  }
+  return entries.length > 0 ? entries : ["Partida local pronta."];
+}
+function viewerScore(match, viewerSeat) {
+  if (viewerSeat === "p2") {
+    return match.totals.p2;
+  }
+  return match.totals.p1;
+}
+function opponentScore(match, viewerSeat) {
+  if (viewerSeat === "p2") {
+    return match.totals.p1;
+  }
+  return match.totals.p2;
+}
+function soloStatusHeadline(match, viewerSeat) {
+  if (match.status === "ended") {
+    return "As quatro rodadas terminaram. O resumo final esta aberto.";
+  }
+  if (match.status === "revealed") {
+    return match.reveal?.roundEnded ? "A rodada terminou. Avance para seguir ao proximo momento da partida." : "As cartas ja abriram. Avance para o proximo turno.";
+  }
+  if (match.turn === viewerSeat) {
+    return "Sua vez de escolher uma carta e travar no centro.";
+  }
+  if (match.turn) {
+    return "O bot esta escolhendo a resposta dele.";
+  }
+  return "Partida local em andamento.";
+}
+function seatLabelForLog(state, match, slot, viewerSeat) {
+  if (slot === viewerSeat) {
+    return "Voce";
+  }
+  const participantId = slot === "p1" ? match.p1Id : match.p2Id;
+  return participantId ? state.participants[participantId]?.name ?? "Cipher Bot" : "Cipher Bot";
+}
+function capitalizeLine(value) {
+  if (!value) {
+    return value;
+  }
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+function renderResultModal(state, viewerId, mode) {
   const match = state.match;
   const rows = match.roundSummaries.map((summary) => renderSummaryRow(summary)).join("");
   const winner = matchWinnerLabel(match, state);
   const viewerSeat = getSeat(state, viewerId);
+  const footerCopy = mode === "solo" ? "Voltar fecha o resumo final e retorna para a tela inicial." : "Voltar fecha o popup e devolve a sala ao estado de lobby com os botoes de cargo.";
+  const footerButton = mode === "solo" ? '<button class="primary-button" data-action="leave-room">Voltar ao inicio</button>' : '<button class="primary-button" data-action="dismiss-result">Voltar para o lobby</button>';
   return `
     <div class="modal">
       <div class="modal-card">
@@ -2994,8 +3146,8 @@ function renderResultModal(state, viewerId) {
         </div>
 
         <div class="modal-footer">
-          <span class="tiny">Voltar fecha o popup e devolve a sala ao estado de lobby com os botoes de cargo.</span>
-          <button class="primary-button" data-action="dismiss-result">Voltar para o lobby</button>
+          <span class="tiny">${escapeHtml(footerCopy)}</span>
+          ${footerButton}
         </div>
       </div>
     </div>
@@ -3039,27 +3191,12 @@ function bindEvents(state, viewerId, rerender) {
       const roomId = `solo-${Date.now().toString(36)}`;
       const botRole = element.dataset.botRole === "government_informant" ? "government_informant" : "commander_spy";
       const playerSeat2 = botRole === "government_informant" ? "p2" : "p1";
-      const botSeat = playerSeat2 === "p1" ? "p2" : "p1";
       state.controller?.destroy();
-      const controller = new SoloController(viewerId, name, roomId);
+      const controller = new SoloController(viewerId, name, roomId, playerSeat2);
       controller.subscribe(() => rerender());
       state.controller = controller;
       state.dismissedMatchId = null;
-      state.screen = "room";
-      controller.post({
-        $: "ready",
-        id: controller.viewerId,
-        name: controller.viewerName,
-        isBot: 0,
-        seat: playerSeat2 === "p1" ? 0 : 1
-      });
-      controller.post({
-        $: "ready",
-        id: getBotIdentity().id,
-        name: getBotIdentity().name,
-        isBot: 1,
-        seat: botSeat === "p1" ? 0 : 1
-      });
+      state.screen = "solo";
       rerender();
     });
   });
@@ -3154,16 +3291,35 @@ function bindEvents(state, viewerId, rerender) {
     });
     chatInput.value = "";
   });
-  syncChatUi(state);
+  syncAuxiliaryPanels(state, viewerId);
 }
-function syncChatUi(state) {
-  const chatInput = document.getElementById("chat-input");
-  if (state.screen !== "room" || !state.controller) {
+function syncAuxiliaryPanels(state, viewerId) {
+  if (!state.controller) {
     lastChatViewportKey = "";
     shouldFocusChatInputAfterRender = false;
     return;
   }
   const roomState = state.controller.getState();
+  if (state.screen === "solo" && state.controller.mode === "solo") {
+    shouldFocusChatInputAfterRender = false;
+    const entries = getSoloLogEntries(roomState, viewerId);
+    const lastEntry = entries[entries.length - 1] ?? "";
+    const nextViewportKey2 = `${roomState.match.matchId}:${roomState.match.status}:${roomState.match.roundIndex}:${entries.length}:${lastEntry}`;
+    const logList = document.querySelector(".solo-log-list");
+    if (logList && nextViewportKey2 !== lastChatViewportKey) {
+      lastChatViewportKey = nextViewportKey2;
+      window.requestAnimationFrame(() => {
+        logList.scrollTop = logList.scrollHeight;
+      });
+    }
+    return;
+  }
+  const chatInput = document.getElementById("chat-input");
+  if (state.screen !== "room" || state.controller.mode !== "multiplayer") {
+    lastChatViewportKey = "";
+    shouldFocusChatInputAfterRender = false;
+    return;
+  }
   const latestMessage = roomState.chat[roomState.chat.length - 1] ?? null;
   const nextViewportKey = latestMessage ? `${roomState.chat.length}:${latestMessage.id}` : "empty";
   const chatList = document.querySelector(".chat-list");
@@ -3211,7 +3367,7 @@ function statusHeadline(match, viewerSeat) {
     return "Cada jogador escolhe o cargo inicial antes da partida comecar.";
   }
   if (match.status === "ended") {
-    return "As quatro rodadas terminaram. Feche o popup e monte outra partida na mesma sala.";
+    return "As quatro rodadas terminaram. Veja o resumo final ou monte outra partida.";
   }
   if (match.status === "revealed") {
     return "As cartas do turno atual ja foram reveladas.";
@@ -3225,6 +3381,9 @@ function statusHeadline(match, viewerSeat) {
   return "A rodada esta aguardando a resolucao atual.";
 }
 function boardNarration(match, viewerSeat) {
+  if (match.status === "ended") {
+    return "A partida terminou. O resumo final esta disponivel.";
+  }
   if (match.status === "revealed" && match.reveal) {
     return `${match.reveal.comboLabel} \xB7 ${match.reveal.roundEnded ? "rodada encerrada" : "nenhuma pontuacao"}`;
   }

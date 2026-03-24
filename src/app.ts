@@ -16,7 +16,6 @@ import type {
   MatchState,
   PlayerSlot,
   Role,
-  RoomMode,
   RoomPost,
   RoomState,
   RoundSummary,
@@ -60,7 +59,7 @@ interface Controller {
   readonly viewerId: string;
   readonly viewerName: string;
   readonly roomId: string;
-  readonly mode: RoomMode;
+  readonly mode: "solo" | "multiplayer";
   subscribe(listener: () => void): () => void;
   getState(): RoomState;
   post(post: RoomPost): void;
@@ -80,23 +79,40 @@ class SoloController implements Controller {
   private continueTimer: number | null = null;
   private plannedBotCardId: string | null = null;
 
-  constructor(viewerId: string, viewerName: string, roomId: string) {
+  constructor(viewerId: string, viewerName: string, roomId: string, viewerSeat: PlayerSlot) {
     this.viewerId = viewerId;
     this.viewerName = viewerName;
     this.roomId = roomId;
     this.state = createInitialRoomState(roomId);
-    this.post({
+    this.state = applyRoomPost(this.state, {
       $: "join",
       id: viewerId,
       name: viewerName,
       isBot: 0,
     });
-    this.post({
+    this.state = applyRoomPost(this.state, {
       $: "join",
       id: this.botId,
       name: this.botName,
       isBot: 1,
     });
+
+    const botSeat = oppositeSlot(viewerSeat);
+    this.state = applyRoomPost(this.state, {
+      $: "ready",
+      id: viewerId,
+      name: viewerName,
+      isBot: 0,
+      seat: viewerSeat === "p1" ? 0 : 1,
+    });
+    this.state = applyRoomPost(this.state, {
+      $: "ready",
+      id: this.botId,
+      name: this.botName,
+      isBot: 1,
+      seat: botSeat === "p1" ? 0 : 1,
+    });
+    this.maybeScheduleBot();
   }
 
   subscribe(listener: () => void): () => void {
@@ -402,7 +418,7 @@ class MultiplayerController implements Controller {
 }
 
 interface AppState {
-  screen: "home" | "room";
+  screen: "home" | "room" | "solo";
   currentName: string;
   currentRoom: string;
   controller: Controller | null;
@@ -437,13 +453,17 @@ function render(state: AppState, viewerId: string): string {
   const shouldOpenModal =
     match.status === "ended" && state.dismissedMatchId !== match.matchId && match.roundSummaries.length > 0;
 
+  if (state.screen === "solo" && state.controller.mode === "solo") {
+    return renderSoloScreen(roomState, viewerId, shouldOpenModal);
+  }
+
   return `
     <div class="screen room-screen">
       <div class="main-surface">
-        ${renderGamePanel(roomState, viewerId, state.controller.mode)}
+        ${renderGamePanel(roomState, viewerId)}
         ${renderSidebar(roomState, viewerId, state.controller)}
       </div>
-      ${shouldOpenModal ? renderResultModal(roomState, viewerId) : ""}
+      ${shouldOpenModal ? renderResultModal(roomState, viewerId, "multiplayer") : ""}
     </div>
   `;
 }
@@ -505,6 +525,68 @@ function renderHome(state: AppState): string {
         </div>
       </section>
     </div>
+  `;
+}
+
+function renderSoloScreen(state: RoomState, viewerId: string, shouldOpenModal: boolean): string {
+  return `
+    <div class="screen solo-screen">
+      <div class="main-surface solo-surface">
+        ${renderSoloGamePanel(state, viewerId)}
+        ${renderSoloSidebar(state, viewerId)}
+      </div>
+      ${shouldOpenModal ? renderResultModal(state, viewerId, "solo") : ""}
+    </div>
+  `;
+}
+
+function renderSoloGamePanel(state: RoomState, viewerId: string): string {
+  const match = state.match;
+  const viewerSeat = getSeat(state, viewerId);
+  const roundLabel = match.status === "ended" ? "Partida encerrada" : `Rodada ${Math.min(match.roundIndex + 1, 4)} / 4`;
+
+  return `
+    <section class="game-panel solo-game-panel">
+      <div class="game-top">
+        <div class="status-block">
+          <span class="eyebrow">${escapeHtml(roundLabel)}</span>
+          <p class="status-text">${escapeHtml(soloStatusHeadline(match, viewerSeat))}</p>
+        </div>
+        <div class="button-row">
+          <span class="score-pill">Voce ${viewerScore(match, viewerSeat)} pts</span>
+          <span class="score-pill">Bot ${opponentScore(match, viewerSeat)} pts</span>
+        </div>
+      </div>
+
+      ${renderBoard(state, viewerId)}
+
+      <div class="board-footer">
+        ${renderActionFooter(state, viewerId)}
+      </div>
+    </section>
+  `;
+}
+
+function renderSoloSidebar(state: RoomState, viewerId: string): string {
+  return `
+    <aside class="sidebar solo-sidebar">
+      ${renderLeavePanel()}
+      ${renderSoloLogPanel(state, viewerId)}
+    </aside>
+  `;
+}
+
+function renderSoloLogPanel(state: RoomState, viewerId: string): string {
+  const entries = getSoloLogEntries(state, viewerId);
+  return `
+    <section class="sidebar-panel solo-log-panel">
+      <div>
+        <h2 class="panel-title">Log de partida</h2>
+      </div>
+      <div class="chat-list solo-log-list">
+        ${entries.map((entry) => `<p class="solo-log-entry">${escapeHtml(entry)}</p>`).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -650,7 +732,7 @@ function renderLeavePanel(): string {
   `;
 }
 
-function renderGamePanel(state: RoomState, viewerId: string, mode: RoomMode): string {
+function renderGamePanel(state: RoomState, viewerId: string): string {
   const match = state.match;
   const viewerSeat = getSeat(state, viewerId);
   const roundLabel = `Rodada ${Math.min(match.roundIndex + 1, 4)} / 4`;
@@ -689,7 +771,6 @@ function renderGamePanel(state: RoomState, viewerId: string, mode: RoomMode): st
       ${showWaitingState ? renderWaitingPanel(state, viewerId) : renderBoard(state, viewerId)}
 
       <div class="board-footer">
-        ${mode === "solo" ? '<span class="tiny">Modo local: o bot ocupa o cargo restante automaticamente.</span>' : ""}
         ${renderActionFooter(state, viewerId)}
       </div>
     </section>
@@ -875,11 +956,114 @@ function renderActionFooter(state: RoomState, viewerId: string): string {
   `;
 }
 
-function renderResultModal(state: RoomState, viewerId: string): string {
+function getSoloLogEntries(state: RoomState, viewerId: string): string[] {
+  const match = state.match;
+  const viewerSeat = getSeat(state, viewerId);
+  const entries: string[] = [];
+
+  if (viewerSeat === "p1" || viewerSeat === "p2") {
+    const botSeat = oppositeSlot(viewerSeat);
+    const botId = botSeat === "p1" ? match.p1Id : match.p2Id;
+    const botName = botId ? state.participants[botId]?.name ?? "Cipher Bot" : "Cipher Bot";
+    entries.push(`Voce comeca como ${seatRoleName(match, viewerSeat, true).toLowerCase()}.`);
+    entries.push(`${botName} comeca como ${seatRoleName(match, botSeat, true).toLowerCase()}.`);
+  }
+
+  for (const summary of match.roundSummaries) {
+    entries.push(`Rodada ${summary.round}: ${summary.reason}`);
+  }
+
+  if (match.status === "playing") {
+    const currentRole = match.turn ? seatRoleName(match, match.turn).toLowerCase() : "";
+    const currentTurnLine = currentRole
+      ? `${capitalizeLine(currentRole)} abre o turno da rodada ${match.roundIndex + 1}.`
+      : `Rodada ${match.roundIndex + 1} em andamento.`;
+    entries.push(currentTurnLine);
+
+    const firstSeat = firstTurnSlot(match.roundIndex);
+    const secondSeat = oppositeSlot(firstSeat);
+    if (match.selectedCardIds[firstSeat] && !match.selectedCardIds[secondSeat]) {
+      entries.push(`${seatLabelForLog(state, match, secondSeat, viewerSeat)} ainda vai responder ao centro.`);
+    }
+  }
+
+  if (match.status === "revealed" && match.reveal && !match.reveal.roundEnded) {
+    entries.push(match.reveal.summary);
+  }
+
+  if (match.status === "ended") {
+    entries.push(`Partida encerrada. ${matchWinnerLabel(match, state)}.`);
+  }
+
+  return entries.length > 0 ? entries : ["Partida local pronta."];
+}
+
+function viewerScore(match: MatchState, viewerSeat: Seat): number {
+  if (viewerSeat === "p2") {
+    return match.totals.p2;
+  }
+  return match.totals.p1;
+}
+
+function opponentScore(match: MatchState, viewerSeat: Seat): number {
+  if (viewerSeat === "p2") {
+    return match.totals.p1;
+  }
+  return match.totals.p2;
+}
+
+function soloStatusHeadline(match: MatchState, viewerSeat: Seat): string {
+  if (match.status === "ended") {
+    return "As quatro rodadas terminaram. O resumo final esta aberto.";
+  }
+
+  if (match.status === "revealed") {
+    return match.reveal?.roundEnded
+      ? "A rodada terminou. Avance para seguir ao proximo momento da partida."
+      : "As cartas ja abriram. Avance para o proximo turno.";
+  }
+
+  if (match.turn === viewerSeat) {
+    return "Sua vez de escolher uma carta e travar no centro.";
+  }
+
+  if (match.turn) {
+    return "O bot esta escolhendo a resposta dele.";
+  }
+
+  return "Partida local em andamento.";
+}
+
+function seatLabelForLog(state: RoomState, match: MatchState, slot: PlayerSlot, viewerSeat: Seat): string {
+  if (slot === viewerSeat) {
+    return "Voce";
+  }
+
+  const participantId = slot === "p1" ? match.p1Id : match.p2Id;
+  return participantId ? state.participants[participantId]?.name ?? "Cipher Bot" : "Cipher Bot";
+}
+
+function capitalizeLine(value: string): string {
+  if (!value) {
+    return value;
+  }
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function renderResultModal(state: RoomState, viewerId: string, mode: "solo" | "multiplayer"): string {
   const match = state.match;
   const rows = match.roundSummaries.map((summary) => renderSummaryRow(summary)).join("");
   const winner = matchWinnerLabel(match, state);
   const viewerSeat = getSeat(state, viewerId);
+  const footerCopy =
+    mode === "solo"
+      ? "Voltar fecha o resumo final e retorna para a tela inicial."
+      : "Voltar fecha o popup e devolve a sala ao estado de lobby com os botoes de cargo.";
+  const footerButton =
+    mode === "solo"
+      ? '<button class="primary-button" data-action="leave-room">Voltar ao inicio</button>'
+      : '<button class="primary-button" data-action="dismiss-result">Voltar para o lobby</button>';
+
   return `
     <div class="modal">
       <div class="modal-card">
@@ -905,8 +1089,8 @@ function renderResultModal(state: RoomState, viewerId: string): string {
         </div>
 
         <div class="modal-footer">
-          <span class="tiny">Voltar fecha o popup e devolve a sala ao estado de lobby com os botoes de cargo.</span>
-          <button class="primary-button" data-action="dismiss-result">Voltar para o lobby</button>
+          <span class="tiny">${escapeHtml(footerCopy)}</span>
+          ${footerButton}
         </div>
       </div>
     </div>
@@ -956,27 +1140,12 @@ function bindEvents(state: AppState, viewerId: string, rerender: () => void): vo
       const roomId = `solo-${Date.now().toString(36)}`;
       const botRole = element.dataset.botRole === "government_informant" ? "government_informant" : "commander_spy";
       const playerSeat = botRole === "government_informant" ? "p2" : "p1";
-      const botSeat = playerSeat === "p1" ? "p2" : "p1";
       state.controller?.destroy();
-      const controller = new SoloController(viewerId, name, roomId);
+      const controller = new SoloController(viewerId, name, roomId, playerSeat);
       controller.subscribe(() => rerender());
       state.controller = controller;
       state.dismissedMatchId = null;
-      state.screen = "room";
-      controller.post({
-        $: "ready",
-        id: controller.viewerId,
-        name: controller.viewerName,
-        isBot: 0,
-        seat: playerSeat === "p1" ? 0 : 1,
-      });
-      controller.post({
-        $: "ready",
-        id: getBotIdentity().id,
-        name: getBotIdentity().name,
-        isBot: 1,
-        seat: botSeat === "p1" ? 0 : 1,
-      });
+      state.screen = "solo";
       rerender();
     });
   });
@@ -1079,18 +1248,41 @@ function bindEvents(state: AppState, viewerId: string, rerender: () => void): vo
     chatInput.value = "";
   });
 
-  syncChatUi(state);
+  syncAuxiliaryPanels(state, viewerId);
 }
 
-function syncChatUi(state: AppState): void {
-  const chatInput = document.getElementById("chat-input") as HTMLInputElement | null;
-  if (state.screen !== "room" || !state.controller) {
+function syncAuxiliaryPanels(state: AppState, viewerId: string): void {
+  if (!state.controller) {
     lastChatViewportKey = "";
     shouldFocusChatInputAfterRender = false;
     return;
   }
 
   const roomState = state.controller.getState();
+
+  if (state.screen === "solo" && state.controller.mode === "solo") {
+    shouldFocusChatInputAfterRender = false;
+    const entries = getSoloLogEntries(roomState, viewerId);
+    const lastEntry = entries[entries.length - 1] ?? "";
+    const nextViewportKey = `${roomState.match.matchId}:${roomState.match.status}:${roomState.match.roundIndex}:${entries.length}:${lastEntry}`;
+    const logList = document.querySelector(".solo-log-list") as HTMLDivElement | null;
+
+    if (logList && nextViewportKey !== lastChatViewportKey) {
+      lastChatViewportKey = nextViewportKey;
+      window.requestAnimationFrame(() => {
+        logList.scrollTop = logList.scrollHeight;
+      });
+    }
+    return;
+  }
+
+  const chatInput = document.getElementById("chat-input") as HTMLInputElement | null;
+  if (state.screen !== "room" || state.controller.mode !== "multiplayer") {
+    lastChatViewportKey = "";
+    shouldFocusChatInputAfterRender = false;
+    return;
+  }
+
   const latestMessage = roomState.chat[roomState.chat.length - 1] ?? null;
   const nextViewportKey = latestMessage ? `${roomState.chat.length}:${latestMessage.id}` : "empty";
   const chatList = document.querySelector(".chat-list") as HTMLDivElement | null;
@@ -1159,7 +1351,7 @@ function statusHeadline(match: MatchState, viewerSeat: Seat): string {
   }
 
   if (match.status === "ended") {
-    return "As quatro rodadas terminaram. Feche o popup e monte outra partida na mesma sala.";
+    return "As quatro rodadas terminaram. Veja o resumo final ou monte outra partida.";
   }
 
   if (match.status === "revealed") {
@@ -1178,6 +1370,10 @@ function statusHeadline(match: MatchState, viewerSeat: Seat): string {
 }
 
 function boardNarration(match: MatchState, viewerSeat: Seat): string {
+  if (match.status === "ended") {
+    return "A partida terminou. O resumo final esta disponivel.";
+  }
+
   if (match.status === "revealed" && match.reveal) {
     return `${match.reveal.comboLabel} · ${match.reveal.roundEnded ? "rodada encerrada" : "nenhuma pontuacao"}`;
   }

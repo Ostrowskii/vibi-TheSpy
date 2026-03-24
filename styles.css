@@ -266,7 +266,8 @@ button {
   outline-offset: 2px;
 }
 
-.room-screen {
+.room-screen,
+.solo-screen {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
@@ -308,6 +309,10 @@ button {
   gap: 18px;
 }
 
+.solo-surface {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+}
+
 .game-panel {
   min-height: 0;
   overflow: hidden;
@@ -315,6 +320,10 @@ button {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 18px;
+}
+
+.solo-game-panel {
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .game-top {
@@ -501,6 +510,11 @@ button {
   overflow: hidden;
 }
 
+.solo-sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
 .sidebar-panel {
   min-height: 0;
   padding: 18px 0;
@@ -529,6 +543,12 @@ button {
   flex: 1 1 65%;
   min-height: 240px;
   grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.solo-log-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .info-panel {
@@ -625,6 +645,19 @@ button {
   word-break: break-word;
   font-size: 0.86rem;
   line-height: 1.28;
+}
+
+.solo-log-entry {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px dashed rgba(160, 131, 95, 0.34);
+  background: rgba(230, 213, 184, 0.88);
+  color: var(--accent-strong);
+  font-size: 0.88rem;
+  line-height: 1.32;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .chat-message.system .chat-line {
@@ -744,6 +777,13 @@ button {
   padding: 26px;
   display: grid;
   gap: 18px;
+}
+
+@media (max-width: 980px) {
+  .main-surface,
+  .solo-surface {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .table-row {
