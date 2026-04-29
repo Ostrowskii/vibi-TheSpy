@@ -2288,6 +2288,7 @@ var STORAGE_NAME_KEY = "the-spy-name";
 var STORAGE_ID_KEY = "the-spy-viewer-id";
 var ROOM_SCHEMA_VERSION = "v4";
 var ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
+var VIBINET_SERVER_URL = "wss://net.vibistudiotest.site";
 var PAGE_INSTANCE_ID = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `page-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 var shouldFocusChatInputAfterRender = false;
 var lastChatViewportKey = "";
@@ -2452,6 +2453,7 @@ var MultiplayerController = class {
     });
     this.game = new VibiNet.game({
       room: networkRoomId,
+      server: VIBINET_SERVER_URL,
       initial: this.initialState,
       on_tick: (state) => state,
       on_post: (post, currentState) => applyRoomPost(currentState, post),

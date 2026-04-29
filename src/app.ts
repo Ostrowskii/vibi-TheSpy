@@ -26,6 +26,7 @@ const STORAGE_NAME_KEY = "the-spy-name";
 const STORAGE_ID_KEY = "the-spy-viewer-id";
 const ROOM_SCHEMA_VERSION = "v4";
 const ROOM_NAMESPACE = "the-spy-" + ROOM_SCHEMA_VERSION;
+const VIBINET_SERVER_URL = "wss://net.vibistudiotest.site";
 const PAGE_INSTANCE_ID =
   typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
@@ -238,6 +239,7 @@ class MultiplayerController implements Controller {
     });
     this.game = new VibiNet.game<RoomState, RoomPost>({
       room: networkRoomId,
+      server: VIBINET_SERVER_URL,
       initial: this.initialState,
       on_tick: (state) => state,
       on_post: (post, currentState) => applyRoomPost(currentState, post),
